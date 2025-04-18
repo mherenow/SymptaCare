@@ -13,3 +13,6 @@ SymptaCare is a symptom analysis chatbot that helps users understand their healt
 The chatbot distinguishes between minor issues that can be treated at home (like common colds, minor headaches, or indigestion) and more serious conditions requiring professional attention. When serious symptoms are detected, SymptaCare recommends appropriate medical professionals and displays nearby options using location data.
 
 This project combines healthcare knowledge with practical technology solutions to provide accessible health guidance while encouraging proper medical care when needed.
+
+## Collaborators
+- [Venkatesh](https://github.com/mherenow)
