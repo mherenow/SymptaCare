@@ -1,15 +1,33 @@
 import spacy
 import requests
 import json
+from dotenv import load_dotenv
 from spacy.matcher import Matcher, PhraseMatcher
 from spacy.tokens import Span
 from spacy.language import Language
 from fuzzywuzzy import fuzz, process
+import os
 import re
 from rapidfuzz import fuzz as rfuzz
 from rapidfuzz import process as rprocess
 import nltk
 from nltk.corpus import wordnet
+import logging
+
+# Configure logging
+logging.basicConfig(
+    level=logging.INFO,
+    format='%(asctime)s - %(name)s - %(levelname)s - %(message)s',
+    handlers=[
+        logging.FileHandler('symptom_extractor.log')
+    ]
+)
+logger = logging.getLogger('SymptomExtractor')
+
+# Set logging level for non-API operations to WARNING to reduce noise
+logging.getLogger('SymptomExtractor').setLevel(logging.WARNING)
+
+load_dotenv()
 
 # Download NLTK data
 try:
@@ -21,13 +39,34 @@ except LookupError:
 
 class SymptomExtractor:
     """Symptom extractor using multiple NLP techniques and medical knowledge bases"""
-    def __init__(self, use_umls_api=False, umls_api_key = None):
+    def __init__(self, use_umls_api=True, umls_api_key = os.getenv("UMLS_API_KEY")):
         try:
             self.nlp = spacy.load("en_core_web_md")
         except OSError:
             print("Please install the required SpaCy model by running:")
             print("python -m spacy download en_core_web_md")
             raise
+
+        # Common symptom words
+        self.common_symptom_words = {
+            "pain", "ache", "sore", "hurt", "swollen", "inflamed", "irritated", 
+            "itchy", "burning", "tender", "stiff", "numb", "weak", "dizzy", 
+            "nauseous", "vomit", "cough", "sneeze", "fever", "chill", "headache",
+            "migraine", "rash", "tired", "exhausted", "anxious", "irritable",
+            "dizzy", "nauseated", "swollen", "painful", "migraine", "tired",
+            "exhausted", "anxious", "irritable", "throwing up", "vomiting",
+            "nausea", "dizziness", "swelling", "pain", "migraine", "fatigue",
+            "anxiety", "irritation", "upset", "watery", "itchy", "soreness",
+            "throw up", "vomit", "nauseous", "dizzy", "swell", "pain", "ache",
+            "sore", "hurt", "itch", "burn", "tender", "stiff", "numb", "weak",
+            "tire", "exhaust", "anxious", "irritate", "upset", "water", "sore",
+            "trouble sleeping", "can't sleep", "insomnia", "difficulty sleeping",
+            "sleep problems", "sleep issues", "sleep disturbance", "poor sleep",
+            "restless sleep", "sleeplessness", "sleep disorder", "sleep difficulty",
+            "trouble falling asleep", "trouble staying asleep", "sleep deprivation",
+            "sleep deficit", "sleep loss", "sleep disturbance", "sleep disruption",
+            "sleep problems", "sleep issues", "sleep complaints", "sleep troubles"
+        }
 
         # Intitalize matchers
         self.matcher = Matcher(self.nlp.vocab)
@@ -183,18 +222,18 @@ class SymptomExtractor:
 
         # Pattern 1: "I have/feel/am experiencing [symptom]"
         have_pattern = [
-            [{"LOWER": {"IN": ["i", "ive", "i've", "im", "i'm"]}}, 
-             {"LEMMA": {"IN": ["have", "experience", "feel", "be", "get", "develop", "suffer"]}},
+            [{"LOWER": {"IN": ["i", "ive", "i've", "im", "i'm", "ive", "i've"]}}, 
+             {"LEMMA": {"IN": ["have", "experience", "feel", "be", "get", "develop", "suffer", "been"]}},
              {"OP": "?", "POS": {"IN": ["DET", "ADJ", "ADV"]}},
              {"POS": {"IN": ["NOUN", "ADJ", "VERB"]}}],
              
-            [{"LOWER": {"IN": ["i", "ive", "i've", "im", "i'm"]}}, 
-             {"LEMMA": {"IN": ["feel", "experience", "have"]}},
+            [{"LOWER": {"IN": ["i", "ive", "i've", "im", "i'm", "ive", "i've"]}}, 
+             {"LEMMA": {"IN": ["feel", "experience", "have", "been"]}},
              {"OP": "?", "POS": {"IN": ["DET", "ADJ", "ADV"]}},
              {"POS": {"IN": ["NOUN", "ADJ", "VERB"]}}],
              
-            [{"LOWER": {"IN": ["i", "ive", "i've", "im", "i'm"]}}, 
-             {"LEMMA": {"IN": ["be", "feel", "have"]}},
+            [{"LOWER": {"IN": ["i", "ive", "i've", "im", "i'm", "ive", "i've"]}}, 
+             {"LEMMA": {"IN": ["be", "feel", "have", "been"]}},
              {"OP": "?", "POS": {"IN": ["DET", "ADJ", "ADV"]}},
              {"POS": {"IN": ["NOUN", "ADJ", "VERB"]}}]
         ]
@@ -223,7 +262,11 @@ class SymptomExtractor:
              {"POS": "VERB", "OP": "+"}],
              
             [{"LOWER": {"IN": ["i", "im", "i'm", "ive", "i've"]}},
-             {"POS": "VERB", "OP": "+"}]
+             {"POS": "VERB", "OP": "+"}],
+             
+            [{"POS": "VERB", "OP": "+"},
+             {"LOWER": "since"},
+             {"OP": "+", "POS": {"IN": ["NUM", "ADJ", "NOUN"]}}]
         ]
         
         # Pattern 4: Description with time - "been [symptom] for [time]"
@@ -236,6 +279,10 @@ class SymptomExtractor:
             [{"LEMMA": "have"}, 
              {"POS": "VERB", "OP": "+"},
              {"LOWER": "since"},
+             {"OP": "+", "POS": {"IN": ["NUM", "ADJ", "NOUN"]}}],
+             
+            [{"POS": "VERB", "OP": "+"},
+             {"LOWER": "since"},
              {"OP": "+", "POS": {"IN": ["NUM", "ADJ", "NOUN"]}}]
         ]
         
@@ -247,20 +294,40 @@ class SymptomExtractor:
              {"POS": {"IN": ["NOUN", "ADJ"]}}]
         ]
         
+        # Pattern 6: Psychological symptoms
+        psychological_pattern = [
+            [{"LOWER": {"IN": ["i", "im", "i'm", "ive", "i've"]}},
+             {"LEMMA": {"IN": ["feel", "be", "have", "experience"]}},
+             {"OP": "?", "POS": "ADV"},
+             {"POS": "ADJ"}],
+             
+            [{"LOWER": {"IN": ["i", "im", "i'm", "ive", "i've"]}},
+             {"LEMMA": {"IN": ["feel", "be", "have", "experience"]}},
+             {"OP": "?", "POS": "ADV"},
+             {"POS": "ADJ"},
+             {"LOWER": "and"},
+             {"POS": "ADJ"}]
+        ]
+        
         # Add patterns to matcher
         self.matcher.add("HAVE_SYMPTOM", have_pattern)
         self.matcher.add("BODY_PART_CONDITION", body_part_pattern)
         self.matcher.add("VERB_SYMPTOM", verb_pattern)
         self.matcher.add("TIME_SYMPTOM", time_pattern)
         self.matcher.add("EXISTENTIAL_SYMPTOM", existential_pattern)
+        self.matcher.add("PSYCHOLOGICAL_SYMPTOM", psychological_pattern)
 
     def extract_symptoms(self, text):
         """Extract symptoms from user text"""
+        logger.info(f"Starting symptom extraction for text: {text}")
         doc = self.nlp(text)
         symptoms_data = []
 
         # Phrase matching for direct symptom mentions
+        logger.debug("Performing phrase matching")
         phrase_matches = self.phrase_matcher(doc)
+        logger.debug(f"Found {len(phrase_matches)} phrase matches")
+
         for match_id, start, end in phrase_matches:
             span = doc[start:end]
             # Check context around the match
@@ -271,9 +338,13 @@ class SymptomExtractor:
             # Skip if the match is negated
             if not self._is_negated(context):
                 symptoms_data.append(span.text)
+                logger.debug(f"Added symptom from phrase matching: {span.text}")
 
         # Pattern matching for symptom contexts
+        logger.debug("Performing pattern matching")
         pattern_matches = self.matcher(doc)
+        logger.debug(f"Found {len(pattern_matches)} pattern matches")
+
         for match_id, start, end in pattern_matches:
             span = doc[start:end]
             # Check context around the match
@@ -285,9 +356,15 @@ class SymptomExtractor:
             if not self._is_negated(context):
                 symptom_text = self._extract_symptom_from_span(span)
                 if symptom_text:
-                    symptoms_data.append(symptom_text)
+                    if isinstance(symptom_text, list):
+                        symptoms_data.extend(symptom_text)
+                        logger.debug(f"Added multiple symptoms from pattern matching: {symptom_text}")
+                    else:
+                        symptoms_data.append(symptom_text)
+                        logger.debug(f"Added symptom from pattern matching: {symptom_text}")
 
         # Verb form detection
+        logger.debug("Performing verb form detection")
         for token in doc:
             if token.pos_ == "VERB" and token.lemma_ in self.symptom_lemmas:
                 # Check context around the verb
@@ -298,8 +375,10 @@ class SymptomExtractor:
                 # Skip if the verb is negated
                 if not self._is_negated(context):
                     symptoms_data.append(token.lemma_)
-        
+                    logger.debug(f"Added symptom from verb form: {token.lemma_}")
+
         # NER component detection
+        logger.debug("Performing NER component detection")
         for ent in doc.ents:
             if ent.label_ == "SYMPTOM":
                 # Check context around the entity
@@ -310,14 +389,21 @@ class SymptomExtractor:
                 # Skip if the entity is negated
                 if not self._is_negated(context):
                     symptoms_data.append(ent.text)
-        
+                    logger.debug(f"Added symptom from NER: {ent.text}")
+
         # Improved fuzzy matching for symptom approximations
+        logger.debug("Performing fuzzy matching")
         chunks = []
         for chunk in doc.noun_chunks:
             chunks.append(chunk.text)
         for token in doc:
-            if token.pos_ in ["NOUN", "ADJ"]:
+            if token.pos_ in ["NOUN", "ADJ", "VERB"]:
                 chunks.append(token.text)
+        
+        # Add multi-token combinations for compound symptoms
+        for i in range(len(doc)-1):
+            if doc[i].pos_ in ["NOUN", "ADJ", "VERB"] and doc[i+1].pos_ in ["NOUN", "ADJ", "VERB"]:
+                chunks.append(f"{doc[i].text} {doc[i+1].text}")
         
         for chunk in chunks:
             # Check context around the chunk
@@ -332,13 +418,24 @@ class SymptomExtractor:
                     chunk, 
                     self.symptom_db['common_symptoms'], 
                     scorer=fuzz.token_sort_ratio,
-                    score_cutoff=85  # Relaxed threshold
+                    score_cutoff=80  # More relaxed threshold
                 )
                 if best_match:
                     symptoms_data.append(best_match[0])
+                    logger.debug(f"Added symptom from fuzzy matching: {best_match[0]}")
+                else:
+                    # Try matching with common symptom words
+                    for symptom_word in self.common_symptom_words:
+                        if fuzz.ratio(chunk.lower(), symptom_word) > 80:
+                            symptoms_data.append(symptom_word)
+                            logger.debug(f"Added symptom from common words: {symptom_word}")
+                            break
         
         # Deduplicate and clean up symptoms
-        return self._deduplicate_symptoms(symptoms_data)
+        logger.info(f"Found {len(symptoms_data)} potential symptoms before deduplication")
+        deduplicated_symptoms = self._deduplicate_symptoms(symptoms_data)
+        logger.info(f"Found {len(deduplicated_symptoms)} unique symptoms after deduplication")
+        return deduplicated_symptoms
     
     def _extract_symptom_from_span(self, span):
         """Extract symptom from a matched span"""
@@ -350,10 +447,15 @@ class SymptomExtractor:
             
             # Check if it's directly in our symptom database
             for db_symptom in self.symptom_db['common_symptoms']:
-                if fuzz.ratio(symptom_text, db_symptom) > 85:
+                if fuzz.ratio(symptom_text, db_symptom) > 80:  # More relaxed threshold
                     return db_symptom
             
-            # If not directly found, return only if it's a strong match
+            # If not directly found, check common symptom words
+            for symptom_word in self.common_symptom_words:
+                if fuzz.ratio(symptom_text, symptom_word) > 80:
+                    return symptom_word
+            
+            # If still not found, return only if it's a strong match
             return span[-1].text if span[-1].lemma_ in self.symptom_lemmas else None
         
         elif string_id == "BODY_PART_CONDITION":
@@ -367,14 +469,26 @@ class SymptomExtractor:
             return None
         
         elif string_id == "VERB_SYMPTOM":
+            symptoms = []
             for token in span:
                 if token.pos_ == "VERB" and token.lemma_ in self.symptom_lemmas:
-                    return token.lemma_
+                    symptoms.append(token.lemma_)
+            return symptoms[0] if symptoms else None
             
         elif string_id == "TIME_SYMPTOM":
+            symptoms = []
             for token in span:
                 if token.pos_ == "VERB" and token.lemma_ in self.symptom_lemmas:
-                    return token.lemma_
+                    symptoms.append(token.lemma_)
+            return symptoms[0] if symptoms else None
+        
+        elif string_id == "PSYCHOLOGICAL_SYMPTOM":
+            # Extract adjectives that might be symptoms
+            symptoms = []
+            for token in span:
+                if token.pos_ == "ADJ" and token.lemma_ in self.symptom_lemmas:
+                    symptoms.append(token.lemma_)
+            return symptoms
         
         return None
 
@@ -424,7 +538,14 @@ class SymptomExtractor:
             "pain", "ache", "sore", "hurt", "swollen", "inflamed", "irritated", 
             "itchy", "burning", "tender", "stiff", "numb", "weak", "dizzy", 
             "nauseous", "vomit", "cough", "sneeze", "fever", "chill", "headache",
-            "migraine", "rash", "tired", "exhausted", "anxious", "irritable"
+            "migraine", "rash", "tired", "exhausted", "anxious", "irritable",
+            "dizzy", "nauseated", "swollen", "painful", "migraine", "tired",
+            "exhausted", "anxious", "irritable", "throwing up", "vomiting",
+            "nausea", "dizziness", "swelling", "pain", "migraine", "fatigue",
+            "anxiety", "irritation", "upset", "watery", "itchy", "soreness",
+            "throw up", "vomit", "nauseous", "dizzy", "swell", "pain", "ache",
+            "sore", "hurt", "itch", "burn", "tender", "stiff", "numb", "weak",
+            "tire", "exhaust", "anxious", "irritate", "upset", "water", "sore"
         }
         
         if any(word in symptom.lower() for word in common_symptom_words):
@@ -544,26 +665,34 @@ class SymptomExtractor:
         symptoms = []
         
         try:
-            """
+            # Temporarily set logging level to INFO for API operations
+            logger.setLevel(logging.INFO)
+            
+            logger.info(f"Starting UMLS API query for text: {text}")
             auth_endpoint = "https://utslogin.nlm.nih.gov/cas/v1/api-key"
             search_endpoint = "https://uts-ws.nlm.nih.gov/rest/search/current"
             
             # Get auth token
+            logger.info("Requesting authentication token from UMLS API")
             auth_params = {
                 "apiKey": self.umls_api_key
             }
             auth_response = requests.post(auth_endpoint, data=auth_params)
+            logger.info(f"Auth response status: {auth_response.status_code}")
             tgt = auth_response.text
             
             # Generate service ticket
+            logger.info("Generating service ticket")
             service_ticket_endpoint = f"{tgt}/ticket"
             ticket_params = {
                 "service": "http://umlsks.nlm.nih.gov"
             }
             ticket_response = requests.post(service_ticket_endpoint, data=ticket_params)
+            logger.info(f"Ticket response status: {ticket_response.status_code}")
             st = ticket_response.text
             
             # Search for terms
+            logger.info("Searching for medical concepts")
             search_params = {
                 "string": text,
                 "searchType": "exact",
@@ -573,20 +702,28 @@ class SymptomExtractor:
             }
             
             search_response = requests.get(search_endpoint, params=search_params)
+            logger.info(f"Search response status: {search_response.status_code}")
             results = search_response.json()
             
             # Extract symptoms from results
             if 'result' in results and 'results' in results['result']:
+                logger.info(f"Found {len(results['result']['results'])} potential matches")
                 for result in results['result']['results']:
                     if 'ui' in result and 'name' in result:
                         # Filter for symptom semantic types
                         if self._is_symptom_concept(result):
                             symptoms.append(result['name'])
-            """
-            pass
+                            logger.info(f"Added symptom: {result['name']}")
+            else:
+                logger.warning("No results found in UMLS API response")
             
         except Exception as e:
-            print(f"UMLS API query failed: {e}")
+            logger.error(f"UMLS API query failed: {str(e)}", exc_info=True)
+        
+        logger.info(f"Completed UMLS API query. Found {len(symptoms)} symptoms")
+        
+        # Reset logging level back to WARNING
+        logger.setLevel(logging.WARNING)
         
         return symptoms
     
@@ -643,8 +780,8 @@ class SymptomExtractorComponent:
 
 def test_symptom_extractor():
     """Test function to demonstrate the symptom extractor's capabilities"""
-    # Initialize extractor without UMLS API
-    extractor = SymptomExtractor(use_umls_api=False)
+    # Initialize extractor with UMLS API enabled
+    extractor = SymptomExtractor(use_umls_api=True)
     
     # Test cases with various phrasings
     test_texts = [
@@ -667,9 +804,9 @@ def test_symptom_extractor():
     ]
     
     for text in test_texts:
-        print(f"\nInput: {text}")
+        print(f"\nProcessing test case: {text}")
         symptoms = extractor.extract_symptoms(text)
-        print("Symptoms found:", ", ".join(symptoms) if symptoms else "None")
+        print(f"Final symptoms found: {', '.join(symptoms) if symptoms else 'None'}")
     
     return extractor
 
