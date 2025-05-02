@@ -15,4 +15,7 @@ The chatbot distinguishes between minor issues that can be treated at home (like
 This project combines healthcare knowledge with practical technology solutions to provide accessible health guidance while encouraging proper medical care when needed.
 
 ## Collaborators
+- [Pallavi Tripathi](https://github.com/pallavi625)
+- [Priyanshu Raj](https://github.com/priyanshu6729)
 - [Venkatesh](https://github.com/mherenow)
+- Shivansh Kumar
