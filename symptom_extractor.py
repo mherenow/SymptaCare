@@ -41,12 +41,10 @@ class SymptomExtractor:
     """Symptom extractor using multiple NLP techniques and medical knowledge bases"""
     def __init__(self, use_umls_api=True, umls_api_key = os.getenv("UMLS_API_KEY")):
         try:
-            self.nlp = spacy.load("en_core_web_md")
+            nlp = spacy.load("en_core_web_md")
         except OSError:
-            print("Please install the required SpaCy model by running:")
-            print("python -m spacy download en_core_web_md")
-            raise
-
+            os.system("python -m spacy download en_core_web_md")
+            nlp = spacy.load("en_core_web_md")
         # Common symptom words
         self.common_symptom_words = {
             "pain", "ache", "sore", "hurt", "swollen", "inflamed", "irritated", 
