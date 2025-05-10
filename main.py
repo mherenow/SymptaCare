@@ -1,48 +1,59 @@
-from flask import Flask, request, jsonify
+from fastapi import FastAPI, HTTPException, Request
+from fastapi.middleware.cors import CORSMiddleware
+from pydantic import BaseModel
+from typing import List, Optional
 from symptom_extractor import SymptomExtractor
 from diagnosis_engine import DiagnosisEngine
+import uvicorn
 
-app = Flask(__name__)
+app = FastAPI(title="SymptaCare API", description="API for symptom extraction and diagnosis")
+
+# Add CORS middleware
+app.add_middleware(
+    CORSMiddleware,
+    allow_origins=["*"],  # Allow all origins
+    allow_credentials=True,
+    allow_methods=["*"],  # Allow all methods
+    allow_headers=["*"],  # Allow all headers
+)
 
 # Initialize the SymptomExtractor and DiagnosisEngine
 symptom_extractor = SymptomExtractor()
 diagnosis_engine = DiagnosisEngine()
 
-@app.route('/diagnose', methods=['POST'])
-def diagnose():
+# Define the request model
+class DiagnosisRequest(BaseModel):
+    age: int
+    gender: str
+    input: str
+    
+
+@app.post('/diagnose')
+async def diagnose(request: DiagnosisRequest):
     """
     API endpoint to diagnose based on user input.
     Expects JSON input with 'age', 'gender', and 'input'.
     """
     try:
-        # Parse the JSON request
-        data = request.get_json()
-        age = data.get('age')
-        gender = data.get('gender')
-        user_input = data.get('input')
-
-        # Validate input
-        if not age or not gender or not user_input:
-            return jsonify({"error": "Missing required fields: 'age', 'gender', or 'input'"}), 400
-
         # Extract symptoms using SymptomExtractor
-        symptoms = symptom_extractor.extract_symptoms(user_input)
+        symptoms = symptom_extractor.extract_symptoms(request.input)
 
         # If no symptoms are extracted, return an appropriate response
         if not symptoms:
-            return jsonify({
+            return {
                 "message": "No symptoms could be identified from the input.",
                 "suggestion": "Please provide more detailed information about your symptoms."
-            }), 200
+            }
 
         # Get diagnosis using DiagnosisEngine
-        diagnosis = diagnosis_engine.get_diagnosis(symptoms, age, gender)
+        diagnosis = diagnosis_engine.get_diagnosis(symptoms, request.age, request.gender)
 
-        # Return the diagnosis as JSON
-        return jsonify(diagnosis), 200
+        # Return the diagnosis
+        return diagnosis
 
     except Exception as e:
-        return jsonify({"error": str(e)}), 500
+        raise HTTPException(status_code=500, detail=str(e))
+
 
 if __name__ == '__main__':
-    app.run(debug=True)
+    uvicorn.run(app, host="0.0.0.0", port=8000)
