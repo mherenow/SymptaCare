@@ -5,21 +5,21 @@ from dotenv import load_dotenv
 from spacy.matcher import Matcher, PhraseMatcher
 from spacy.tokens import Span
 from spacy.language import Language
-from fuzzywuzzy import fuzz, process
 import os
 import re
-from rapidfuzz import fuzz as rfuzz
-from rapidfuzz import process as rprocess
 import nltk
 from nltk.corpus import wordnet
 import logging
+from typing import List, Dict, Set, Optional, Tuple
+import time
 
 # Configure logging
 logging.basicConfig(
     level=logging.INFO,
-    format='%(asctime)s - %(name)s - %(levelname)s - %(message)s',
+    format='%(levelname)s: %(message)s',  # Simplified format
     handlers=[
-        logging.FileHandler('symptom_extractor.log')
+        logging.StreamHandler(),  # Add console handler
+        logging.FileHandler('symptom_extractor.log')  # Keep file logging
     ]
 )
 logger = logging.getLogger('SymptomExtractor')
@@ -37,72 +37,56 @@ except LookupError:
     nltk.download('wordnet')
     nltk.download('omw-1.4')
 
-class SymptomExtractor:
-    """Symptom extractor using multiple NLP techniques and medical knowledge bases"""
-    def __init__(self, use_umls_api=True, umls_api_key = os.getenv("UMLS_API_KEY")):
+class LlamaSymptomExtractor:
+    """Enhanced symptom extractor using Llama 3.3 AI model and UMLS API"""
+    
+    def __init__(self, use_umls_api=True, nvidia_api_key=None, umls_api_key=None):
+        # Load API keys
+        self.nvidia_api_key = nvidia_api_key or os.getenv("NVIDIA_API_KEY")
+        self.umls_api_key = umls_api_key or os.getenv("UMLS_API_KEY")
+        
+        if not self.nvidia_api_key:
+            raise ValueError("NVIDIA_API_KEY is required for Llama 3.3 integration")
+        
+        # Initialize spaCy
         try:
             self.nlp = spacy.load("en_core_web_md")
         except OSError:
             os.system("python -m spacy download en_core_web_md")
             self.nlp = spacy.load("en_core_web_md")
-        # Common symptom words
-        self.common_symptom_words = {
-            "pain", "ache", "sore", "hurt", "swollen", "inflamed", "irritated", 
-            "itchy", "burning", "tender", "stiff", "numb", "weak", "dizzy", 
-            "nauseous", "vomit", "cough", "sneeze", "fever", "chill", "headache",
-            "migraine", "rash", "tired", "exhausted", "anxious", "irritable",
-            "dizzy", "nauseated", "swollen", "painful", "migraine", "tired",
-            "exhausted", "anxious", "irritable", "throwing up", "vomiting",
-            "nausea", "dizziness", "swelling", "pain", "migraine", "fatigue",
-            "anxiety", "irritation", "upset", "watery", "itchy", "soreness",
-            "throw up", "vomit", "nauseous", "dizzy", "swell", "pain", "ache",
-            "sore", "hurt", "itch", "burn", "tender", "stiff", "numb", "weak",
-            "tire", "exhaust", "anxious", "irritate", "upset", "water", "sore",
-            "trouble sleeping", "can't sleep", "insomnia", "difficulty sleeping",
-            "sleep problems", "sleep issues", "sleep disturbance", "poor sleep",
-            "restless sleep", "sleeplessness", "sleep disorder", "sleep difficulty",
-            "trouble falling asleep", "trouble staying asleep", "sleep deprivation",
-            "sleep deficit", "sleep loss", "sleep disturbance", "sleep disruption",
-            "sleep problems", "sleep issues", "sleep complaints", "sleep troubles"
-        }
-
-        # Intitalize matchers
+        
+        # UMLS API setup
+        self.use_umls_api = use_umls_api and bool(self.umls_api_key)
+        if use_umls_api and not self.umls_api_key:
+            logger.warning("UMLS API key not found. UMLS integration disabled.")
+            self.use_umls_api = False
+        
+        # Initialize matchers for basic pattern detection
         self.matcher = Matcher(self.nlp.vocab)
         self.phrase_matcher = PhraseMatcher(self.nlp.vocab, attr="LEMMA")
-
-        # Add custom component to pipeline
-        if not self.nlp.has_pipe("symptom_extractor"):
-            self.nlp.add_pipe("symptom_extractor", last=True)
-
-        # Load Symptom Database
+        
+        # Load symptom database
         self.symptom_db = self._load_symptom_database()
+        
+        # Setup basic patterns for fallback
+        self._setup_basic_patterns()
+        
+        # Llama API configuration
+        self.llama_api_url = "https://integrate.api.nvidia.com/v1/chat/completions"
+        self.llama_headers = {
+            "Authorization": f"Bearer {self.nvidia_api_key}",
+            "Content-Type": "application/json"
+        }
+        
+        # Rate limiting
+        self.last_api_call = 0
+        self.min_api_interval = 1.0  # Minimum seconds between API calls
+        
+        logger.info("LlamaSymptomExtractor initialized successfully")
 
-        # Create symptom patterns
-        self._setup_patterns()
-
-        # Process symptoms for phrase matcher
-        symptom_matcher = [self.nlp(symptom) for symptom in self.symptom_db]
-        self.phrase_matcher.add("SYMPTOM", symptom_matcher)
-
-        # Build lemma lookup for symptom verification
-        self.symptom_lemmas = set()
-        for symptom in self.symptom_db['common_symptoms']:
-            doc = self.nlp(symptom)
-            for token in doc:
-                self.symptom_lemmas.add(token.lemma_.lower())
-
-        # (Optional) UMLS API setup
-        self.use_umls_api = use_umls_api
-        self.umls_api_key = umls_api_key
-        if use_umls_api and not umls_api_key:
-            print("UMLS API key is required for UMLS API usage.")
-
-        # Load symptom synonyms
-        self.symptom_synonyms = self._build_symptom_synonyms()
-
-    def _load_symptom_database(self):
+    def _load_symptom_database(self) -> Dict:
         """Load comprehensive symptom database with categories"""
-
+        
         # Core common symptoms
         common_symptoms = [
             # Respiratory symptoms
@@ -119,7 +103,7 @@ class SymptomExtractor:
             "localized pain", "generalized pain", "sharp pain", "dull pain",
             
             # Digestive symptoms
-            "nausea", "vomit", "diarrhea", "constipation", "bloating", "indigestion",
+            "nausea", "vomiting", "diarrhea", "constipation", "bloating", "indigestion",
             "heartburn", "stomach ache", "loss of appetite", "increased appetite",
             "difficulty swallowing", "gas", "acid reflux", "belching", "burping",
             "abdominal cramps", "stomach cramps", "food intolerance", "food sensitivity",
@@ -152,10 +136,10 @@ class SymptomExtractor:
             
             # Urinary/reproductive symptoms
             "frequent urination", "painful urination", "blood in urine", "urinary incontinence",
-            "discharge", "irregular periods", "missed period", "heavy menstruation",
-            "erectile dysfunction", "low libido", "itching", "burning sensation",
-            "urinary urgency", "urinary frequency", "urinary hesitancy", "urinary retention",
-            "sexual dysfunction", "menstrual cramps", "pelvic pain"
+            "vaginal discharge", "penile discharge", "irregular periods", "missed period", 
+            "heavy menstruation", "erectile dysfunction", "low libido", "genital itching", 
+            "burning sensation", "urinary urgency", "urinary frequency", "urinary hesitancy", 
+            "urinary retention", "sexual dysfunction", "menstrual cramps", "pelvic pain"
         ]
         
         # Symptom modifiers and descriptors
@@ -178,636 +162,455 @@ class SymptomExtractor:
             "stomach", "pancreas", "spleen", "gallbladder", "thyroid", "adrenal"
         ]
         
-        # Symptom patterns with [modifier] + [symptom] + [body part]
-        advanced_patterns = [
-            "[MODIFIER] [SYMPTOM]",
-            "[SYMPTOM] in [BODY_PART]",
-            "[MODIFIER] [SYMPTOM] in [BODY_PART]",
-            "[BODY_PART] [SYMPTOM]"
-        ]
-        
         return {
             "common_symptoms": common_symptoms,
             "symptom_modifiers": symptom_modifiers,
-            "body_parts": body_parts,
-            "advanced_patterns": advanced_patterns
+            "body_parts": body_parts
         }
-    
-    def _build_symptom_synonyms(self):
-        """Build a dictionary of symptom synonyms using WordNet"""
-        synonym_dict = {}
-        for synonym in self.symptom_db['common_symptoms']:
-            # Split multi word symptoms
-            words = synonym.split()
-            synonyms = set()
 
-            for word in words:
-                # Get synonyms from WordNet
-                for syn in wordnet.synsets(word):
-                    for lemma in syn.lemmas():
-                        # Add synonyms
-                        synonym = lemma.name().replace("_", " ")
-                        synonyms.add(synonym)
-
-            # Add the original symptom to the synonyms
-            synonyms.add(synonym)
-            synonym_dict[synonym] = list(synonyms)
-
-        return synonym_dict
-    
-    def _setup_patterns(self):
-        """Setup patterns for matching symptom"""
-
-        # Pattern 1: "I have/feel/am experiencing [symptom]"
-        have_pattern = [
-            [{"LOWER": {"IN": ["i", "ive", "i've", "im", "i'm", "ive", "i've"]}}, 
-             {"LEMMA": {"IN": ["have", "experience", "feel", "be", "get", "develop", "suffer", "been"]}},
-             {"OP": "?", "POS": {"IN": ["DET", "ADJ", "ADV"]}},
-             {"POS": {"IN": ["NOUN", "ADJ", "VERB"]}}],
-             
-            [{"LOWER": {"IN": ["i", "ive", "i've", "im", "i'm", "ive", "i've"]}}, 
-             {"LEMMA": {"IN": ["feel", "experience", "have", "been"]}},
-             {"OP": "?", "POS": {"IN": ["DET", "ADJ", "ADV"]}},
-             {"POS": {"IN": ["NOUN", "ADJ", "VERB"]}}],
-             
-            [{"LOWER": {"IN": ["i", "ive", "i've", "im", "i'm", "ive", "i've"]}}, 
-             {"LEMMA": {"IN": ["be", "feel", "have", "been"]}},
-             {"OP": "?", "POS": {"IN": ["DET", "ADJ", "ADV"]}},
-             {"POS": {"IN": ["NOUN", "ADJ", "VERB"]}}]
+    def _setup_basic_patterns(self):
+        """Setup basic spaCy patterns for fallback extraction"""
+        
+        # Pattern for "I have/feel/experience [symptom]"
+        have_patterns = [
+            [{"LOWER": {"IN": ["i", "i've", "i'm", "ive", "im"]}}, 
+             {"LEMMA": {"IN": ["have", "experience", "feel", "be", "get", "develop", "suffer"]}},
+             {"OP": "*", "POS": {"IN": ["DET", "ADJ", "ADV"]}},
+             {"POS": {"IN": ["NOUN", "ADJ"]}, "OP": "+"}]
         ]
         
-        # Pattern 2: "My [body part] is [condition]"
-        body_part_pattern = [
-            [{"LOWER": {"IN": ["my", "the", "this"]}}, 
+        # Pattern for "My [body part] [condition]"
+        body_part_patterns = [
+            [{"LOWER": {"IN": ["my", "the"]}}, 
              {"POS": "NOUN"},
-             {"LEMMA": {"IN": ["be", "feel", "hurt", "ache", "pain", "bother"]}},
-             {"OP": "?", "POS": "ADV"},
-             {"POS": {"IN": ["ADJ", "VERB", "NOUN"]}}],
-             
-            [{"LOWER": {"IN": ["my", "the", "this"]}}, 
-             {"POS": "NOUN"},
-             {"LEMMA": {"IN": ["be", "feel"]}},
-             {"OP": "?", "POS": "ADV"},
-             {"POS": "ADJ"},
-             {"LOWER": "in"},
-             {"POS": "NOUN"}]
+             {"LEMMA": {"IN": ["be", "feel", "hurt", "ache", "pain"]}},
+             {"POS": {"IN": ["ADJ", "NOUN"]}, "OP": "+"}]
         ]
         
-        # Pattern 3: "I'm [verbing]"
-        verb_pattern = [
-            [{"LOWER": {"IN": ["i", "im", "i'm", "ive", "i've"]}},
-             {"POS": "AUX"},
-             {"POS": "VERB", "OP": "+"}],
-             
-            [{"LOWER": {"IN": ["i", "im", "i'm", "ive", "i've"]}},
-             {"POS": "VERB", "OP": "+"}],
-             
-            [{"POS": "VERB", "OP": "+"},
-             {"LOWER": "since"},
-             {"OP": "+", "POS": {"IN": ["NUM", "ADJ", "NOUN"]}}]
-        ]
-        
-        # Pattern 4: Description with time - "been [symptom] for [time]"
-        time_pattern = [
-            [{"LEMMA": "be"}, 
-             {"POS": "VERB", "OP": "+"},
-             {"LOWER": "for"},
-             {"OP": "+", "POS": {"IN": ["NUM", "ADJ", "NOUN"]}}],
-             
-            [{"LEMMA": "have"}, 
-             {"POS": "VERB", "OP": "+"},
-             {"LOWER": "since"},
-             {"OP": "+", "POS": {"IN": ["NUM", "ADJ", "NOUN"]}}],
-             
-            [{"POS": "VERB", "OP": "+"},
-             {"LOWER": "since"},
-             {"OP": "+", "POS": {"IN": ["NUM", "ADJ", "NOUN"]}}]
-        ]
-        
-        # Pattern 5: "There is [symptom]"
-        existential_pattern = [
-            [{"LOWER": {"IN": ["there", "here"]}},
-             {"LEMMA": "be"},
-             {"OP": "?", "POS": {"IN": ["DET", "ADJ"]}},
-             {"POS": {"IN": ["NOUN", "ADJ"]}}]
-        ]
-        
-        # Pattern 6: Psychological symptoms
-        psychological_pattern = [
-            [{"LOWER": {"IN": ["i", "im", "i'm", "ive", "i've"]}},
-             {"LEMMA": {"IN": ["feel", "be", "have", "experience"]}},
-             {"OP": "?", "POS": "ADV"},
-             {"POS": "ADJ"}],
-             
-            [{"LOWER": {"IN": ["i", "im", "i'm", "ive", "i've"]}},
-             {"LEMMA": {"IN": ["feel", "be", "have", "experience"]}},
-             {"OP": "?", "POS": "ADV"},
-             {"POS": "ADJ"},
-             {"LOWER": "and"},
-             {"POS": "ADJ"}]
-        ]
-        
-        # Add patterns to matcher
-        self.matcher.add("HAVE_SYMPTOM", have_pattern)
-        self.matcher.add("BODY_PART_CONDITION", body_part_pattern)
-        self.matcher.add("VERB_SYMPTOM", verb_pattern)
-        self.matcher.add("TIME_SYMPTOM", time_pattern)
-        self.matcher.add("EXISTENTIAL_SYMPTOM", existential_pattern)
-        self.matcher.add("PSYCHOLOGICAL_SYMPTOM", psychological_pattern)
+        self.matcher.add("SYMPTOM_HAVE", have_patterns)
+        self.matcher.add("SYMPTOM_BODY_PART", body_part_patterns)
 
-    def extract_symptoms(self, text):
-        """Extract symptoms from user text"""
-        logger.info(f"Starting symptom extraction for text: {text}")
-        doc = self.nlp(text)
-        symptoms_data = []
+    def _rate_limit_api_call(self):
+        """Implement rate limiting for API calls"""
+        current_time = time.time()
+        time_since_last_call = current_time - self.last_api_call
+        
+        if time_since_last_call < self.min_api_interval:
+            sleep_time = self.min_api_interval - time_since_last_call
+            time.sleep(sleep_time)
+        
+        self.last_api_call = time.time()
 
-        # Phrase matching for direct symptom mentions
-        logger.debug("Performing phrase matching")
-        phrase_matches = self.phrase_matcher(doc)
-        logger.debug(f"Found {len(phrase_matches)} phrase matches")
+    def _query_llama_for_symptoms(self, text: str) -> List[str]:
+        """Query Llama 3.3 model to extract symptoms from text"""
+        
+        self._rate_limit_api_call()
+        
+        # Create a comprehensive prompt for symptom extraction
+        prompt = f"""You are a medical AI assistant specialized in extracting symptoms from patient descriptions. 
 
-        for match_id, start, end in phrase_matches:
-            span = doc[start:end]
-            # Check context around the match
-            context_start = max(0, start - 3)
-            context_end = min(len(doc), end + 3)
-            context = doc[context_start:context_end]
+Your task is to identify and extract ALL symptoms mentioned in the following text. 
+
+Rules:
+1. Extract symptoms as they appear in medical terminology
+2. Include body location if mentioned (e.g., "chest pain" not just "pain")
+3. Normalize similar terms (e.g., "throwing up" → "vomiting")
+4. Only extract actual symptoms, not causes or diagnoses
+5. Ignore negated symptoms (e.g., "no fever" should not extract "fever")
+6. Return symptoms as a JSON list of strings
+
+Common symptom categories to look for:
+- Pain (headache, chest pain, back pain, etc.)
+- Respiratory (cough, shortness of breath, wheezing, etc.)
+- Digestive (nausea, vomiting, diarrhea, constipation, etc.)
+- General (fever, fatigue, dizziness, weakness, etc.)
+- Skin (rash, itching, swelling, etc.)
+- Neurological (confusion, memory loss, numbness, etc.)
+- Psychological (anxiety, depression, insomnia, etc.)
+
+Patient text: "{text}"
+
+Extract symptoms and return as JSON array of strings:"""
+
+        try:
+            payload = {
+                "model": "meta/llama-3.3-70b-instruct",
+                "messages": [
+                    {
+                        "role": "system",
+                        "content": "You are a medical AI assistant that extracts symptoms from patient descriptions. Always respond with valid JSON."
+                    },
+                    {
+                        "role": "user", 
+                        "content": prompt
+                    }
+                ],
+                "temperature": 0.1,
+                "max_tokens": 1000,
+                "top_p": 0.9
+            }
             
-            # Skip if the match is negated
-            if not self._is_negated(context):
-                symptoms_data.append(span.text)
-                logger.debug(f"Added symptom from phrase matching: {span.text}")
-
-        # Pattern matching for symptom contexts
-        logger.debug("Performing pattern matching")
-        pattern_matches = self.matcher(doc)
-        logger.debug(f"Found {len(pattern_matches)} pattern matches")
-
-        for match_id, start, end in pattern_matches:
-            span = doc[start:end]
-            # Check context around the match
-            context_start = max(0, start - 3)
-            context_end = min(len(doc), end + 3)
-            context = doc[context_start:context_end]
+            logger.info(f"Querying Llama for: {text[:50]}...")  # Truncate long text
+            response = requests.post(
+                self.llama_api_url, 
+                headers=self.llama_headers, 
+                json=payload,
+                timeout=60
+            )
             
-            # Skip if the match is negated
-            if not self._is_negated(context):
-                symptom_text = self._extract_symptom_from_span(span)
-                if symptom_text:
-                    if isinstance(symptom_text, list):
-                        symptoms_data.extend(symptom_text)
-                        logger.debug(f"Added multiple symptoms from pattern matching: {symptom_text}")
+            if response.status_code == 200:
+                result = response.json()
+                content = result['choices'][0]['message']['content'].strip()
+                
+                try:
+                    json_start = content.find('[')
+                    json_end = content.rfind(']') + 1
+                    
+                    if json_start != -1 and json_end != 0:
+                        json_content = content[json_start:json_end]
+                        symptoms = json.loads(json_content)
+                        logger.info(f"Found {len(symptoms)} symptoms")
+                        return symptoms
                     else:
-                        symptoms_data.append(symptom_text)
-                        logger.debug(f"Added symptom from pattern matching: {symptom_text}")
-
-        # Verb form detection
-        logger.debug("Performing verb form detection")
-        for token in doc:
-            if token.pos_ == "VERB" and token.lemma_ in self.symptom_lemmas:
-                # Check context around the verb
-                start = max(0, token.i - 3)
-                end = min(len(doc), token.i + 3)
-                context = doc[start:end]
+                        logger.warning("No symptoms found in response")
+                        return []
+                        
+                except json.JSONDecodeError as e:
+                    logger.error(f"JSON parse error: {e}")
+                    return []
+                    
+            else:
+                logger.error(f"API error: {response.status_code}")
+                return []
                 
-                # Skip if the verb is negated
-                if not self._is_negated(context):
-                    symptoms_data.append(token.lemma_)
-                    logger.debug(f"Added symptom from verb form: {token.lemma_}")
-
-        # NER component detection
-        logger.debug("Performing NER component detection")
-        for ent in doc.ents:
-            if ent.label_ == "SYMPTOM":
-                # Check context around the entity
-                start = max(0, ent.start - 3)
-                end = min(len(doc), ent.end + 3)
-                context = doc[start:end]
-                
-                # Skip if the entity is negated
-                if not self._is_negated(context):
-                    symptoms_data.append(ent.text)
-                    logger.debug(f"Added symptom from NER: {ent.text}")
-
-        # Improved fuzzy matching for symptom approximations
-        logger.debug("Performing fuzzy matching")
-        chunks = []
-        for chunk in doc.noun_chunks:
-            chunks.append(chunk.text)
-        for token in doc:
-            if token.pos_ in ["NOUN", "ADJ", "VERB"]:
-                chunks.append(token.text)
-        
-        # Add multi-token combinations for compound symptoms
-        for i in range(len(doc)-1):
-            if doc[i].pos_ in ["NOUN", "ADJ", "VERB"] and doc[i+1].pos_ in ["NOUN", "ADJ", "VERB"]:
-                chunks.append(f"{doc[i].text} {doc[i+1].text}")
-        
-        for chunk in chunks:
-            # Check context around the chunk
-            start = max(0, doc.text.find(chunk) - 20)
-            end = min(len(doc.text), doc.text.find(chunk) + len(chunk) + 20)
-            context = doc.text[start:end]
-            
-            # Skip if the chunk is negated
-            if not self._is_negated(self.nlp(context)):
-                # Check if this chunk might be a symptom using fuzzy matching
-                best_match = process.extractOne(
-                    chunk, 
-                    self.symptom_db['common_symptoms'], 
-                    scorer=fuzz.token_sort_ratio,
-                    score_cutoff=80  # More relaxed threshold
-                )
-                if best_match:
-                    symptoms_data.append(best_match[0])
-                    logger.debug(f"Added symptom from fuzzy matching: {best_match[0]}")
-                else:
-                    # Try matching with common symptom words
-                    for symptom_word in self.common_symptom_words:
-                        if fuzz.ratio(chunk.lower(), symptom_word) > 80:
-                            symptoms_data.append(symptom_word)
-                            logger.debug(f"Added symptom from common words: {symptom_word}")
-                            break
-        
-        # Deduplicate and clean up symptoms
-        logger.info(f"Found {len(symptoms_data)} potential symptoms before deduplication")
-        deduplicated_symptoms = self._deduplicate_symptoms(symptoms_data)
-        logger.info(f"Found {len(deduplicated_symptoms)} unique symptoms after deduplication")
-        return deduplicated_symptoms
-    
-    def _extract_symptom_from_span(self, span):
-        """Extract symptom from a matched span"""
-        string_id = self.nlp.vocab.strings[span.label]
-
-        if string_id == "HAVE_SYMPTOM":
-            # Make sure the extracted symptom is in our database or a common symptom
-            symptom_text = span[-1].text.lower()
-            
-            # Check if it's directly in our symptom database
-            for db_symptom in self.symptom_db['common_symptoms']:
-                if fuzz.ratio(symptom_text, db_symptom) > 80:  # More relaxed threshold
-                    return db_symptom
-            
-            # If not directly found, check common symptom words
-            for symptom_word in self.common_symptom_words:
-                if fuzz.ratio(symptom_text, symptom_word) > 80:
-                    return symptom_word
-            
-            # If still not found, return only if it's a strong match
-            return span[-1].text if span[-1].lemma_ in self.symptom_lemmas else None
-        
-        elif string_id == "BODY_PART_CONDITION":
-            body_part = span[1].text
-            condition = span[-1].text
-            
-            # Only return if the condition is in our modifiers or symptom lemmas
-            if (condition.lower() in self.symptom_db['symptom_modifiers'] or 
-                self.nlp(condition)[0].lemma_ in self.symptom_lemmas):
-                return f"{condition} in {body_part}"
-            return None
-        
-        elif string_id == "VERB_SYMPTOM":
-            symptoms = []
-            for token in span:
-                if token.pos_ == "VERB" and token.lemma_ in self.symptom_lemmas:
-                    symptoms.append(token.lemma_)
-            return symptoms[0] if symptoms else None
-            
-        elif string_id == "TIME_SYMPTOM":
-            symptoms = []
-            for token in span:
-                if token.pos_ == "VERB" and token.lemma_ in self.symptom_lemmas:
-                    symptoms.append(token.lemma_)
-            return symptoms[0] if symptoms else None
-        
-        elif string_id == "PSYCHOLOGICAL_SYMPTOM":
-            # Extract adjectives that might be symptoms
-            symptoms = []
-            for token in span:
-                if token.pos_ == "ADJ" and token.lemma_ in self.symptom_lemmas:
-                    symptoms.append(token.lemma_)
-            return symptoms
-        
-        return None
-
-    def _is_valid_symptom_context(self, context):
-        """Check if the context is valid for a symptom mention"""
-        # Check for common symptom-related verbs and patterns
-        symptom_verbs = {"have", "feel", "experience", "suffer", "get", "develop", "been", "am", "is", "are", "was", "were"}
-        symptom_patterns = {"i", "my", "me", "i'm", "i've", "im", "ive", "been", "having", "feeling", "experiencing"}
-        
-        # Check if any token in context is a symptom-related verb
-        has_symptom_verb = any(token.lemma_ in symptom_verbs for token in context)
-        
-        # Check if the context starts with a valid pattern
-        has_valid_pattern = any(token.text.lower() in symptom_patterns for token in context[:3])
-        
-        # Check for body parts or symptom-related nouns
-        has_body_part = any(token.text.lower() in self.symptom_db['body_parts'] for token in context)
-        
-        # Check for symptom-related adjectives or nouns
-        has_symptom_word = any(token.lemma_ in self.symptom_lemmas for token in context if token.pos_ in ["ADJ", "NOUN"])
-        
-        # Check for common symptom phrases
-        has_symptom_phrase = any(
-            token.text.lower() in {"pain", "ache", "sore", "hurt", "swollen", "inflamed", "irritated", "itchy", "burning", "tender", "stiff"}
-            for token in context
-        )
-        
-        return (has_symptom_verb or has_valid_pattern) and (has_body_part or has_symptom_word or has_symptom_phrase)
-
-    def _is_valid_symptom(self, symptom):
-        """Validate if a potential symptom is actually a symptom"""
-        # Check if it's directly in our symptom database
-        if symptom.lower() in [s.lower() for s in self.symptom_db['common_symptoms']]:
-            return True
-            
-        # Check if it's a body part (alone it's not a symptom)
-        if symptom.lower() in [bp.lower() for bp in self.symptom_db['body_parts']]:
-            return False
-            
-        # Check if it's a meaningful symptom word
-        doc = self.nlp(symptom)
-        if any(token.lemma_ in self.symptom_lemmas for token in doc):
-            return True
-            
-        # Check for common symptom words
-        common_symptom_words = {
-            "pain", "ache", "sore", "hurt", "swollen", "inflamed", "irritated", 
-            "itchy", "burning", "tender", "stiff", "numb", "weak", "dizzy", 
-            "nauseous", "vomit", "cough", "sneeze", "fever", "chill", "headache",
-            "migraine", "rash", "tired", "exhausted", "anxious", "irritable",
-            "dizzy", "nauseated", "swollen", "painful", "migraine", "tired",
-            "exhausted", "anxious", "irritable", "throwing up", "vomiting",
-            "nausea", "dizziness", "swelling", "pain", "migraine", "fatigue",
-            "anxiety", "irritation", "upset", "watery", "itchy", "soreness",
-            "throw up", "vomit", "nauseous", "dizzy", "swell", "pain", "ache",
-            "sore", "hurt", "itch", "burn", "tender", "stiff", "numb", "weak",
-            "tire", "exhaust", "anxious", "irritate", "upset", "water", "sore"
-        }
-        
-        if any(word in symptom.lower() for word in common_symptom_words):
-            return True
-            
-        return False
-
-    def _deduplicate_symptoms(self, symptoms_data):
-        """Deduplicate symptoms using lemmatization and fuzzy matching"""
-        if not symptoms_data:
+        except requests.exceptions.Timeout:
+            logger.error("API timeout")
+            return []
+        except requests.exceptions.RequestException as e:
+            logger.error(f"Request failed: {e}")
+            return []
+        except Exception as e:
+            logger.error(f"Unexpected error: {e}")
             return []
 
-        # First normalize all symptoms to lowercase
-        normalized_symptoms = [s.lower().strip() for s in symptoms_data if s and s.strip()]
+    def _query_umls_api(self, symptoms: List[str]) -> List[str]:
+        """Query UMLS API to validate and expand symptom list"""
+        if not self.use_umls_api or not symptoms:
+            return symptoms
         
-        # Filter out invalid symptoms
-        filtered_symptoms = []
-        for symptom in normalized_symptoms:
-            if self._is_valid_symptom(symptom):
-                filtered_symptoms.append(symptom)
-        
-        # Now deduplicate what's left with improved grouping
-        unique_symptoms = []
-        grouped_symptoms = {}
-        
-        # Group similar symptoms with enhanced similarity detection
-        for symptom in filtered_symptoms:
-            matched = False
-            
-            # Check if this symptom belongs to an existing group
-            for group_key in grouped_symptoms:
-                # Calculate multiple similarity metrics
-                token_sort_similarity = fuzz.token_sort_ratio(symptom, group_key)
-                token_set_similarity = fuzz.token_set_ratio(symptom, group_key)
-                semantic_similarity = self._get_semantic_similarity(symptom, group_key)
-                
-                # Weighted similarity score
-                similarity = (token_sort_similarity * 0.4 + 
-                            token_set_similarity * 0.4 + 
-                            semantic_similarity * 0.2)
-                
-                if similarity > 85:  # Relaxed threshold
-                    grouped_symptoms[group_key].append(symptom)
-                    matched = True
-                    break
-            
-            # If not matched to any group, create a new group
-            if not matched:
-                grouped_symptoms[symptom] = [symptom]
-        
-        # Choose the best representative from each group
-        for group_key, group_items in grouped_symptoms.items():
-            # Find the symptom that best matches our database
-            best_symptom = None
-            best_score = 0
-            
-            for symptom in group_items:
-                # Check if this symptom is directly in our database
-                direct_match = process.extractOne(
-                    symptom,
-                    self.symptom_db['common_symptoms'],
-                    scorer=fuzz.ratio,
-                    score_cutoff=85  # Relaxed threshold
-                )
-                
-                if direct_match:
-                    best_symptom = direct_match[0]
-                    break
-                
-                # Enhanced matching for non-direct matches
-                for db_symptom in self.symptom_db['common_symptoms']:
-                    # Calculate multiple similarity metrics
-                    token_sort_score = fuzz.token_sort_ratio(symptom, db_symptom)
-                    token_set_score = fuzz.token_set_ratio(symptom, db_symptom)
-                    semantic_score = self._get_semantic_similarity(symptom, db_symptom)
-                    
-                    # Weighted score
-                    score = (token_sort_score * 0.4 + 
-                            token_set_score * 0.4 + 
-                            semantic_score * 0.2)
-                    
-                    if score > best_score:
-                        best_score = score
-                        best_symptom = db_symptom if score > 85 else symptom
-            
-            if best_symptom:
-                unique_symptoms.append(best_symptom)
-        
-        return unique_symptoms
-
-    def _get_semantic_similarity(self, word1, word2):
-        """Calculate semantic similarity between two words using WordNet"""
-        max_similarity = 0.0
-        
-        # Get synsets for both words
-        synsets1 = wordnet.synsets(word1)
-        synsets2 = wordnet.synsets(word2)
-        
-        if not synsets1 or not synsets2:
-            return 0.0
-        
-        # Calculate maximum similarity between any pair of synsets
-        for syn1 in synsets1:
-            for syn2 in synsets2:
-                try:
-                    similarity = syn1.path_similarity(syn2)
-                    if similarity and similarity > max_similarity:
-                        max_similarity = similarity
-                except:
-                    continue
-        
-        # Convert similarity to percentage
-        return max_similarity * 100
-    
-    def _query_umls_api(self, text):
-        """Query the UMLS API for medical concepts"""
-        symptoms = []
+        validated_symptoms = []
         
         try:
-            # Temporarily set logging level to INFO for API operations
-            logger.setLevel(logging.INFO)
+            logger.info(f"Validating {len(symptoms)} symptoms")
             
-            logger.info(f"Starting UMLS API query for text: {text}")
+            # Get authentication token with retry logic
             auth_endpoint = "https://utslogin.nlm.nih.gov/cas/v1/api-key"
-            search_endpoint = "https://uts-ws.nlm.nih.gov/rest/search/current"
+            auth_params = {"apikey": self.umls_api_key}
             
-            # Get auth token
-            logger.info("Requesting authentication token from UMLS API")
-            auth_params = {
-                "apiKey": self.umls_api_key
-            }
-            auth_response = requests.post(auth_endpoint, data=auth_params)
-            logger.info(f"Auth response status: {auth_response.status_code}")
-            tgt = auth_response.text
-            
-            # Generate service ticket
-            logger.info("Generating service ticket")
-            service_ticket_endpoint = f"{tgt}/ticket"
-            ticket_params = {
-                "service": "http://umlsks.nlm.nih.gov"
-            }
-            ticket_response = requests.post(service_ticket_endpoint, data=ticket_params)
-            logger.info(f"Ticket response status: {ticket_response.status_code}")
-            st = ticket_response.text
-            
-            # Search for terms
-            logger.info("Searching for medical concepts")
-            search_params = {
-                "string": text,
-                "searchType": "exact",
-                "ticket": st,
-                "sabs": "SNOMEDCT_US",  # Use SNOMED CT terminology
-                "returnIdType": "concept"
-            }
-            
-            search_response = requests.get(search_endpoint, params=search_params)
-            logger.info(f"Search response status: {search_response.status_code}")
-            results = search_response.json()
-            
-            # Extract symptoms from results
-            if 'result' in results and 'results' in results['result']:
-                logger.info(f"Found {len(results['result']['results'])} potential matches")
-                for result in results['result']['results']:
-                    if 'ui' in result and 'name' in result:
-                        # Filter for symptom semantic types
-                        if self._is_symptom_concept(result):
-                            symptoms.append(result['name'])
-                            logger.info(f"Added symptom: {result['name']}")
-            else:
-                logger.warning("No results found in UMLS API response")
-            
+            # Add retry logic for authentication
+            max_retries = 3
+            auth_response = None
+            for attempt in range(max_retries):
+                try:
+                    auth_response = requests.post(auth_endpoint, data=auth_params, timeout=15)
+                    if auth_response.status_code == 201:
+                        # Extract TGT URL from HTML response
+                        html_content = auth_response.text
+                        tgt_url_match = re.search(r'action="([^"]+)"', html_content)
+                        if not tgt_url_match:
+                            logger.error("Could not extract TGT URL from response")
+                            continue
+                            
+                        tgt_url = tgt_url_match.group(1)
+                        
+                        # Generate service ticket
+                        service = "http://umlsks.nlm.nih.gov"
+                        ticket_params = {"service": service}
+                        
+                        ticket_response = requests.post(tgt_url, data=ticket_params, timeout=15)
+                        if ticket_response.status_code != 200:
+                            logger.error(f"Service ticket generation failed: {ticket_response.status_code}")
+                            continue
+                            
+                        st = ticket_response.text
+                        if not st:
+                            logger.error("Empty service ticket received")
+                            continue
+                        
+                        # Search for each symptom
+                        search_endpoint = "https://uts-ws.nlm.nih.gov/rest/search/current"
+                        
+                        for symptom in symptoms:
+                            try:
+                                search_params = {
+                                    "string": symptom,
+                                    "searchType": "approximate",
+                                    "ticket": st,
+                                    "sabs": "SNOMEDCT_US,MSH",  # SNOMED CT and MeSH
+                                    "returnIdType": "concept",
+                                    "pageSize": "5"
+                                }
+                                
+                                search_response = requests.get(search_endpoint, params=search_params, timeout=15)
+                                
+                                if search_response.status_code == 200:
+                                    results = search_response.json()
+                                    
+                                    if 'result' in results and 'results' in results['result']:
+                                        # Find the best match
+                                        best_match = None
+                                        best_score = 0
+                                        
+                                        for result in results['result']['results']:
+                                            if self._is_symptom_concept(result):
+                                                # Simple scoring based on name similarity
+                                                score = self._calculate_similarity(symptom.lower(), result['name'].lower())
+                                                if score > best_score:
+                                                    best_score = score
+                                                    best_match = result['name']
+                                        
+                                        if best_match and best_score > 0.7:
+                                            validated_symptoms.append(best_match)
+                                            logger.debug(f"UMLS validated: {symptom} -> {best_match}")
+                                        else:
+                                            validated_symptoms.append(symptom)  # Keep original if no good match
+                                    else:
+                                        validated_symptoms.append(symptom)  # Keep original if no results
+                                else:
+                                    validated_symptoms.append(symptom)  # Keep original if search fails
+                                    
+                            except Exception as e:
+                                logger.warning(f"UMLS validation failed for '{symptom}': {e}")
+                                validated_symptoms.append(symptom)  # Keep original on error
+                                
+                            # Brief pause between UMLS queries
+                            time.sleep(0.2)  # Increased delay to avoid rate limiting
+                        
+                        # If we got here, we successfully processed all symptoms
+                        break
+                        
+                    elif auth_response.status_code == 400:
+                        logger.error("Invalid API key")
+                        if attempt < max_retries - 1:
+                            time.sleep(2)
+                            continue
+                        else:
+                            return symptoms
+                    else:
+                        logger.error(f"Auth failed: {auth_response.status_code}")
+                        if attempt < max_retries - 1:
+                            time.sleep(2)
+                            continue
+                        else:
+                            return symptoms
+                except requests.exceptions.RequestException as e:
+                    logger.error(f"Auth request failed: {e}")
+                    if attempt < max_retries - 1:
+                        time.sleep(2)
+                        continue
+                    else:
+                        return symptoms
+                    
         except Exception as e:
-            logger.error(f"UMLS API query failed: {str(e)}", exc_info=True)
+            logger.error(f"UMLS API validation failed: {e}")
+            return symptoms
         
-        logger.info(f"Completed UMLS API query. Found {len(symptoms)} symptoms")
+        logger.info(f"UMLS validation completed: {len(validated_symptoms)} symptoms")
+        return validated_symptoms
+
+    def _is_symptom_concept(self, concept: Dict) -> bool:
+        """Check if a UMLS concept represents a symptom"""
+        # List of semantic types that typically represent symptoms
+        symptom_semantic_types = {
+            "T184",  # Sign or Symptom
+            "T033",  # Finding
+            "T046",  # Pathologic Function
+            # Add more semantic types as needed
+        }
         
-        # Reset logging level back to WARNING
-        logger.setLevel(logging.WARNING)
+        # Check semantic types if available
+        if 'semanticTypes' in concept:
+            for sem_type in concept['semanticTypes']:
+                if sem_type.get('TUI') in symptom_semantic_types:
+                    return True
+        
+        # If no semantic types, use keyword-based heuristics
+        name = concept.get('name', '').lower()
+        symptom_keywords = [
+            'pain', 'ache', 'symptom', 'sign', 'complaint', 'discomfort',
+            'disorder', 'syndrome', 'condition', 'manifestation'
+        ]
+        
+        return any(keyword in name for keyword in symptom_keywords)
+
+    def _calculate_similarity(self, str1: str, str2: str) -> float:
+        """Calculate similarity between two strings"""
+        # Simple Jaccard similarity
+        set1 = set(str1.split())
+        set2 = set(str2.split())
+        
+        intersection = len(set1.intersection(set2))
+        union = len(set1.union(set2))
+        
+        return intersection / union if union > 0 else 0
+
+    def _basic_pattern_extraction(self, text: str) -> List[str]:
+        """Fallback extraction using spaCy patterns"""
+        doc = self.nlp(text)
+        symptoms = []
+        
+        # Use pattern matcher
+        matches = self.matcher(doc)
+        
+        for match_id, start, end in matches:
+            span = doc[start:end]
+            
+            # Extract potential symptoms from the matched span
+            for token in span:
+                if (token.pos_ in ["NOUN", "ADJ"] and 
+                    not self._is_negated(doc[max(0, start-3):min(len(doc), end+3)])):
+                    
+                    # Check if it's a known symptom
+                    if any(symptom in token.text.lower() 
+                           for symptom in self.symptom_db['common_symptoms']):
+                        symptoms.append(token.text.lower())
         
         return symptoms
-    
-    def _is_symptom_concept(self, concept):
-        """Check if a UMLS concept is a symptom (placeholder)"""
-        return True
-    
-    def _is_negated(self, context):
-        """Check if a symptom mention is negated in its context"""
-        negation_indicators = [
-            "no", "not", "never", "none", "neither", "nor", "without",
-            "don't", "doesn't", "didn't", "won't", "wouldn't", "can't",
-            "couldn't", "shouldn't", "haven't", "hasn't", "hadn't"
-        ]
+
+    def _is_negated(self, context) -> bool:
+        """Check if symptoms in context are negated"""
+        negation_words = {"no", "not", "never", "without", "don't", "doesn't", "didn't"}
         
         for token in context:
-            if token.text.lower() in negation_indicators:
+            if token.text.lower() in negation_words or token.dep_ == "neg":
                 return True
-            if token.dep_ == "neg":
-                return True
-        
         return False
 
-@Language.factory("symptom_extractor")
-def create_symptom_component(nlp, name):
-    """Custom component to identify symptoms through custom rules"""
-    return SymptomExtractorComponent()
-
-class SymptomExtractorComponent:
-    def __init__(self):
-        self.symptom_indicators = [
-            "pain", "ache", "discomfort", "sore", "hurt", "swollen", 
-            "inflamed", "irritated", "itchy", "burning", "tender", "stiff",
-            "numb", "tight", "weak", "sick", "ill"
-        ]
-    
-    def __call__(self, doc):
-        """Process the document and add symptom entities"""
-        new_ents = list(doc.ents)
+    def _clean_and_deduplicate(self, symptoms: List[str]) -> List[str]:
+        """Clean and deduplicate the symptom list"""
+        if not symptoms:
+            return []
         
-        # Check for specific symptom patterns
-        for i, token in enumerate(doc):
-            # Check for symptoms with body parts
-            if token.lemma_.lower() in self.symptom_indicators:
-                # Look for body parts after symptom indicators
-                if i < len(doc) - 1 and doc[i+1].pos_ == "NOUN":
-                    start = i
-                    end = i + 2
-                    symptom_span = Span(doc, start, end, label="SYMPTOM")
-                    new_ents.append(symptom_span)
+        # Clean symptoms
+        cleaned = []
+        for symptom in symptoms:
+            if isinstance(symptom, str):
+                # Remove extra whitespace and convert to lowercase
+                clean_symptom = ' '.join(symptom.strip().lower().split())
+                if clean_symptom and len(clean_symptom) > 2:  # Avoid single chars/empty
+                    cleaned.append(clean_symptom)
         
-        doc.ents = new_ents
-        return doc
+        # Remove duplicates while preserving order
+        seen = set()
+        unique_symptoms = []
+        
+        for symptom in cleaned:
+            if symptom not in seen:
+                seen.add(symptom)
+                unique_symptoms.append(symptom)
+        
+        # Filter out body parts that aren't symptoms
+        filtered_symptoms = []
+        for symptom in unique_symptoms:
+            # Skip if it's just a body part without a symptom descriptor
+            if not any(bp == symptom for bp in self.symptom_db['body_parts']):
+                filtered_symptoms.append(symptom)
+        
+        return filtered_symptoms
 
-def test_symptom_extractor():
-    """Test function to demonstrate the symptom extractor's capabilities"""
-    # Initialize extractor with UMLS API enabled
-    extractor = SymptomExtractor(use_umls_api=True)
+    def extract_symptoms(self, text: str) -> List[str]:
+        """Main method to extract symptoms from text using Llama 3.3 and UMLS"""
+        if not text or not text.strip():
+            return []
+        
+        logger.info(f"Processing: {text[:50]}...")  # Truncate long text
+        
+        all_symptoms = []
+        
+        # Primary extraction using Llama 3.3
+        try:
+            llama_symptoms = self._query_llama_for_symptoms(text)
+            if llama_symptoms:
+                all_symptoms.extend(llama_symptoms)
+            else:
+                logger.warning("Using fallback extraction")
+                fallback_symptoms = self._basic_pattern_extraction(text)
+                all_symptoms.extend(fallback_symptoms)
+                
+        except Exception as e:
+            logger.error(f"Extraction failed: {e}")
+            fallback_symptoms = self._basic_pattern_extraction(text)
+            all_symptoms.extend(fallback_symptoms)
+        
+        # Clean and deduplicate
+        cleaned_symptoms = self._clean_and_deduplicate(all_symptoms)
+        
+        # Validate and enhance with UMLS if enabled
+        if self.use_umls_api and cleaned_symptoms:
+            try:
+                validated_symptoms = self._query_umls_api(cleaned_symptoms)
+                final_symptoms = self._clean_and_deduplicate(validated_symptoms)
+            except Exception as e:
+                logger.error(f"UMLS validation failed: {e}")
+                final_symptoms = cleaned_symptoms
+        else:
+            final_symptoms = cleaned_symptoms
+        
+        logger.info(f"Found {len(final_symptoms)} symptoms: {', '.join(final_symptoms)}")
+        return final_symptoms
+
+
+def test_llama_symptom_extractor():
+    """Test function for the Llama-based symptom extractor"""
     
-    # Test cases with various phrasings
+    # Initialize extractor
+    try:
+        extractor = LlamaSymptomExtractor(use_umls_api=True)
+    except ValueError as e:
+        print(f"Error: {e}")
+        print("Set NVIDIA_API_KEY in .env file")
+        return
+    
+    # Test cases
     test_texts = [
-        "I've been having a headache for the past two days.",
-        "My throat is really sore and I have a fever.",
-        "I feel dizzy when I stand up and I've been coughing a lot.",
-        "I'm experiencing chest pain and shortness of breath.",
-        "My back hurts and I have a runny nose.",
+        "I've been having a severe headache for the past two days.",
+        "My throat is really sore and I have a high fever of 101°F.",
+        "I feel dizzy when I stand up and I've been coughing a lot with phlegm.",
+        "I'm experiencing sharp chest pain and shortness of breath.",
+        "My lower back hurts and I have a runny nose with congestion.",
         "I think I might have the flu because I have body aches and chills.",
-        "I've been coughing and sneezing since yesterday.",
-        "My stomach has been upset and I feel nauseated.",
-        "I'm having trouble sleeping and feel anxious all the time.",
-        "My knee is swollen and it's painful when I walk.",
-        "I have a strange rash on my arm that's really itchy.",
-        "I've had these migraines for about a week now.",
-        "Got a stuffy nose, and I'm feeling really tired.",
-        "My eyes are watery and I keep sneezing.",
-        "Been throwing up since last night and can't keep anything down.",
-        "I have trouble sleeping, feeling exhausted, anxious, and irritable."        
+        "I've been coughing and sneezing since yesterday, also feeling fatigued.",
+        "My stomach has been upset and I feel nauseated, threw up this morning.",
+        "I'm having trouble sleeping and feel anxious all the time, very irritable.",
+        "My right knee is swollen and it's painful when I walk or bend it.",
+        "I have a strange red rash on my arm that's really itchy and spreading.",
+        "I've had these intense migraines for about a week now with light sensitivity.",
+        "Got a stuffy nose, watery eyes, and I'm feeling really tired and weak.",
+        "My eyes are watery, keep sneezing, and have postnasal drip.",
+        "Been throwing up since last night and can't keep anything down, also diarrhea.",
+        "I have difficulty sleeping, feeling exhausted, anxious, and very irritable lately.",
+        "I feel a sharp pain in my chest."
     ]
     
-    for text in test_texts:
-        print(f"\nProcessing test case: {text}")
-        symptoms = extractor.extract_symptoms(text)
-        print(f"Final symptoms found: {', '.join(symptoms) if symptoms else 'None'}")
+    print("\nTesting Symptom Extractor")
+    print("=" * 30)
+    
+    for i, text in enumerate(test_texts, 1):
+        print(f"\nTest {i}: {text[:50]}...")
+        print("-" * 30)
+        
+        try:
+            symptoms = extractor.extract_symptoms(text)
+            if symptoms:
+                print(f"Symptoms: {', '.join(symptoms)}")
+            else:
+                print("No symptoms found")
+        except Exception as e:
+            print(f"Error: {e}")
     
     return extractor
 
+
 if __name__ == "__main__":
-    # Run the test function
-    extractor = test_symptom_extractor()
+    # Run the test
+    test_llama_symptom_extractor()

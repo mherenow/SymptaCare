@@ -2,7 +2,7 @@ from fastapi import FastAPI, HTTPException, Request
 from fastapi.middleware.cors import CORSMiddleware
 from pydantic import BaseModel
 from typing import List, Optional
-from symptom_extractor import SymptomExtractor
+from symptom_extractor_old import SymptomExtractor
 from diagnosis_engine import DiagnosisEngine
 import uvicorn
 

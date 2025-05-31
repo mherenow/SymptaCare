@@ -1,8 +1,6 @@
-import requests
 import json
 import logging
 import os
-from dotenv import load_dotenv
 from fuzzywuzzy import fuzz, process
 from collections import defaultdict
 import math
@@ -10,13 +8,22 @@ import math
 #Configure logging
 logging.basicConfig(
     level=logging.INFO,
-    format='%(asctime)s - %(name)s - %(levelname)s - %(message)s',
+    format='%(levelname)s: %(message)s',
     handlers=[
-        logging.FileHandler("diagnosis_engine.log")
+        logging.StreamHandler(),  # Console output with simple format
+        logging.FileHandler("diagnosis_engine.log", mode='a')  # File output with detailed format
     ]
 )
+
+# Create separate formatter for file handler with detailed format
+file_handler = logging.FileHandler("diagnosis_engine.log", mode='a')
+file_handler.setFormatter(logging.Formatter('%(asctime)s - %(name)s - %(levelname)s - %(message)s'))
+
 logger = logging.getLogger('DiagnosisEngine')
-load_dotenv()
+logger.handlers.clear()  # Clear default handlers
+logger.addHandler(logging.StreamHandler())  # Simple console output
+logger.addHandler(file_handler)  # Detailed file output
+logger.setLevel(logging.INFO)
 
 class DiagnosisEngine:
     """Engine for providing diagnosis based on extracted symptoms, age, and sex using local logic only"""
@@ -236,8 +243,7 @@ class DiagnosisEngine:
             "minor cut": ["skin break", "bleeding", "localized pain"],
             "minor burn": ["redness", "pain", "swelling", "blisters"],
             "sunburn": ["red skin", "pain", "swelling", "blisters", "peeling skin"],
-            "minor cough": ["throat irritation", "chest discomfort"]
-        }
+            "minor cough": ["throat irritation", "chest discomfort"]        }
     
     def _get_age_group(self, age):
         """Determine age group based on age"""
@@ -245,49 +251,14 @@ class DiagnosisEngine:
             return "child"
         elif 13 <= age <= 19:
             return "teen"
-        elif 20 <= age <= 64:
+        elif 20 <= age <= 55:
             return "adult"
         else:
             return "senior"
     
-    def _query_openemr_api(self, symptoms, age, sex):
-        """Query the OpenEMR API for diagnosis data"""
-        logger.info(f"Querying OpenEMR API with symptoms: {symptoms}")
-        
-        try:
-            headers = {
-                "Authorization": f"Bearer {self.openemr_api_key}",
-                "Content-Type": "application/json"
-            }
-            
-            payload = {
-                "symptoms": symptoms,
-                "patient_info": {
-                    "age": age,
-                    "sex": sex
-                }
-            }
-            
-            # URL endpoint would be specific to your OpenEMR API setup
-            endpoint = f"{self.openemr_base_url}/api/diagnosis"
-            
-            response = requests.post(endpoint, headers=headers, json=payload)
-            
-            if response.status_code == 200:
-                logger.info("Successfully received diagnosis data from OpenEMR API")
-                return response.json()
-            else:
-                logger.error(f"Failed to get diagnosis data: Status code {response.status_code}")
-                logger.error(f"Response text: {response.text}")
-                return None
-                
-        except Exception as e:
-            logger.error(f"Error querying OpenEMR API: {str(e)}", exc_info=True)
-            return None
-    
-    def _fallback_diagnosis(self, symptoms, age, sex):
-        """Provide basic diagnosis when API is unavailable using local symptom-to-condition matching"""
-        logger.info("Using fallback diagnosis logic")
+    def _get_diagnosis_conditions(self, symptoms, age, sex):
+        """Get diagnosis conditions using local symptom-to-condition matching"""
+        logger.info("Using local diagnosis logic")
         
         # Calculate condition scores based on symptoms
         condition_scores = {}
@@ -431,14 +402,13 @@ class DiagnosisEngine:
                 "advice": severity_advice,
                 "home_remedies": home_remedies
             }
-            
-            # Add disclaimer
+              # Add disclaimer
             response["disclaimer"] = "This is not a definitive medical diagnosis. Always consult with a healthcare professional for proper evaluation."
         
         return response
     
     def get_diagnosis(self, symptoms, age, sex):
-        """Get diagnosis based on symptoms, age, and sex using only local logic"""
+        """Get diagnosis based on symptoms, age, and sex using local logic"""
         logger.info(f"Processing diagnosis request for age={age}, sex={sex}, symptoms={symptoms}")
         if not symptoms:
             return {
@@ -449,10 +419,11 @@ class DiagnosisEngine:
                 "home_remedies": [],
                 "disclaimer": "This is not a definitive medical diagnosis. Always consult with a healthcare professional for proper evaluation."
             }
-        # Only use local logic
-        fallback_conditions = self._fallback_diagnosis(symptoms, age, sex)
+        
+        # Use local diagnosis logic as the main method
+        conditions = self._get_diagnosis_conditions(symptoms, age, sex)
         diagnosis_data = {
-            "conditions": fallback_conditions
+            "conditions": conditions
         }
         return self._format_diagnosis_info(diagnosis_data, symptoms, age, sex)
 
@@ -506,7 +477,13 @@ if __name__ == "__main__":
             "symptoms": ["abdominal pain", "bloating", "diarrhea", "gas"],
             "age": 42,
             "sex": "female"
+        },
+        {
+            "symptoms": ["chest pain"],
+            "age": 68,
+            "sex": "male"
         }
+    
     ]
     for i, case in enumerate(test_cases):
         result = engine.get_diagnosis(case["symptoms"], case["age"], case["sex"])
