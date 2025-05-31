@@ -1,17 +1,19 @@
-import spacy
-import requests
 import json
-from dotenv import load_dotenv
-from spacy.matcher import Matcher, PhraseMatcher
-from spacy.tokens import Span
-from spacy.language import Language
+import logging
 import os
 import re
-import nltk
-from nltk.corpus import wordnet
-import logging
-from typing import List, Dict, Set, Optional, Tuple
 import time
+from collections import defaultdict
+from dotenv import load_dotenv
+from nltk.corpus import wordnet
+from spacy.language import Language
+from spacy.matcher import Matcher, PhraseMatcher
+from spacy.tokens import Span
+from typing import Dict, List, Optional, Set, Tuple
+
+import nltk
+import requests
+import spacy
 
 # Configure logging
 logging.basicConfig(

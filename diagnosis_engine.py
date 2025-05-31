@@ -1,9 +1,9 @@
 import json
 import logging
-import os
-from fuzzywuzzy import fuzz, process
-from collections import defaultdict
 import math
+import os
+from collections import defaultdict
+from fuzzywuzzy import fuzz, process
 
 #Configure logging
 logging.basicConfig(
