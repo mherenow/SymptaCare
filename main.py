@@ -5,6 +5,7 @@ from typing import List, Optional
 from symptom_extractor import LlamaSymptomExtractor
 from diagnosis_engine import DiagnosisEngine
 import uvicorn
+import os
 
 app = FastAPI(title="SymptaCare API", description="API for symptom extraction and diagnosis")
 
@@ -21,6 +22,11 @@ app.add_middleware(
 symptom_extractor = LlamaSymptomExtractor()
 diagnosis_engine = DiagnosisEngine()
 
+import os
+print("[DIAGNOSTIC] NVIDIA_API_KEY at runtime:", os.getenv("NVIDIA_API_KEY"))
+print("[DIAGNOSTIC] Symptom extractor class:", type(symptom_extractor))
+print("[DIAGNOSTIC] Extractor uses Llama key:", getattr(symptom_extractor, 'nvidia_api_key', None))
+
 # Define the request model
 class DiagnosisRequest(BaseModel):
     age: int
@@ -34,6 +40,8 @@ async def diagnose(request: DiagnosisRequest):
     API endpoint to diagnose based on user input.
     Expects JSON input with 'age', 'gender', and 'input'.
     """
+    print("[DIAGNOSTIC] Diagnose endpoint called. Extractor class:", type(symptom_extractor))
+    print("[DIAGNOSTIC] Extractor Llama key:", getattr(symptom_extractor, 'nvidia_api_key', None))
     try:
         # Extract symptoms using SymptomExtractor
         symptoms = symptom_extractor.extract_symptoms(request.input)

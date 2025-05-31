@@ -37,6 +37,8 @@ except LookupError:
     nltk.download('wordnet')
     nltk.download('omw-1.4')
 
+print("[PRINT DIAGNOSTIC] symptom_extractor.py loaded from", __file__)
+
 class LlamaSymptomExtractor:
     """Enhanced symptom extractor using Llama 3.3 AI model and UMLS API"""
     
@@ -119,6 +121,8 @@ class LlamaSymptomExtractor:
             "redness", "swelling", "lump", "blister", "wound", "sore",
             "skin discoloration", "skin lesions", "skin peeling", "skin cracking",
             "skin irritation", "skin sensitivity", "skin dryness", "skin oiliness",
+            "burn", "minor burn", "small burn", "first degree burn", "second degree burn",
+            "third degree burn", "chemical burn", "thermal burn", "sunburn",
             
             # Neurological symptoms
             "confusion", "memory loss", "trouble speaking", "seizure", "tremor",
@@ -148,8 +152,19 @@ class LlamaSymptomExtractor:
             "acute", "sharp", "dull", "throbbing", "stabbing", "burning",
             "intense", "unbearable", "occasional", "frequent", "persistent",
             "worsening", "improving", "stable", "fluctuating", "progressive",
-            "sudden", "gradual", "recurring", "episodic", "continuous"
+            "sudden", "gradual", "recurring", "episodic", "continuous",
+            "minor", "small", "slight", "tiny", "minimal", "superficial",
+            "first degree", "second degree", "third degree", "chemical", "thermal"
         ]
+        
+        # Create modified symptoms by combining modifiers with base symptoms
+        modified_symptoms = []
+        for modifier in symptom_modifiers:
+            for symptom in common_symptoms:
+                modified_symptoms.append(f"{modifier} {symptom}")
+        
+        # Add modified symptoms to the common symptoms list
+        common_symptoms.extend(modified_symptoms)
         
         # Body parts
         body_parts = [
@@ -170,7 +185,6 @@ class LlamaSymptomExtractor:
 
     def _setup_basic_patterns(self):
         """Setup basic spaCy patterns for fallback extraction"""
-        
         # Pattern for "I have/feel/experience [symptom]"
         have_patterns = [
             [{"LOWER": {"IN": ["i", "i've", "i'm", "ive", "im"]}}, 
@@ -178,7 +192,6 @@ class LlamaSymptomExtractor:
              {"OP": "*", "POS": {"IN": ["DET", "ADJ", "ADV"]}},
              {"POS": {"IN": ["NOUN", "ADJ"]}, "OP": "+"}]
         ]
-        
         # Pattern for "My [body part] [condition]"
         body_part_patterns = [
             [{"LOWER": {"IN": ["my", "the"]}}, 
@@ -186,9 +199,12 @@ class LlamaSymptomExtractor:
              {"LEMMA": {"IN": ["be", "feel", "hurt", "ache", "pain"]}},
              {"POS": {"IN": ["ADJ", "NOUN"]}, "OP": "+"}]
         ]
-        
         self.matcher.add("SYMPTOM_HAVE", have_patterns)
         self.matcher.add("SYMPTOM_BODY_PART", body_part_patterns)
+        # Add phrase matcher for multi-word symptoms
+        multi_word_symptoms = [symptom for symptom in self.symptom_db['common_symptoms'] if ' ' in symptom]
+        patterns = [self.nlp(symptom) for symptom in multi_word_symptoms]
+        self.phrase_matcher.add("MULTIWORD_SYMPTOM", patterns)
 
     def _rate_limit_api_call(self):
         """Implement rate limiting for API calls"""
@@ -204,6 +220,7 @@ class LlamaSymptomExtractor:
     def _query_llama_for_symptoms(self, text: str) -> List[str]:
         """Query Llama 3.3 model to extract symptoms from text"""
         
+        print("[PRINT DIAGNOSTIC] _query_llama_for_symptoms called")
         self._rate_limit_api_call()
         
         # Create a comprehensive prompt for symptom extraction
@@ -213,24 +230,62 @@ Your task is to identify and extract ALL symptoms mentioned in the following tex
 
 Rules:
 1. Extract symptoms as they appear in medical terminology
-2. Include body location if mentioned (e.g., "chest pain" not just "pain")
-3. Normalize similar terms (e.g., "throwing up" → "vomiting")
-4. Only extract actual symptoms, not causes or diagnoses
-5. Ignore negated symptoms (e.g., "no fever" should not extract "fever")
-6. Return symptoms as a JSON list of strings
+2. ALWAYS include severity modifiers when present (e.g., "mild fever", "severe pain")
+3. Include body location if mentioned (e.g., "chest pain" not just "pain")
+4. Normalize similar terms (e.g., "throwing up" → "vomiting")
+5. Only extract actual symptoms, not causes or diagnoses
+6. Ignore negated symptoms (e.g., "no fever" should not extract "fever")
+7. Return symptoms as a JSON list of strings
+8. IMPORTANT: Preserve all modifiers and descriptors exactly as they appear in the text
+
+Symptom Normalization Rules:
+1. For minor/small/tiny/slight symptoms:
+   - Convert "small burn" to "minor burn"
+   - Convert "tiny cut" to "minor cut"
+   - Convert "slight pain" to "minor pain"
+   - IMPORTANT: For minor symptoms, DO NOT include location information
+   - Example: "small burn on wrist" → "minor burn"
+   - Example: "tiny cut on finger" → "minor cut"
+   - Example: "slight pain in back" → "minor pain"
+
+2. For severity levels:
+   - mild → mild
+   - moderate → moderate
+   - severe/intense/extreme → severe
+   - acute → acute
+   - chronic → chronic
+
+3. For location information:
+   - Only include location for non-minor symptoms
+   - Keep prepositions (on, in, at, of) for non-minor symptoms
+   - Keep body parts after prepositions for non-minor symptoms
+   - Example: "severe burn on wrist" → "severe burn on wrist"
+   - Example: "acute pain in chest" → "acute pain in chest"
+
+4. For degree-based severity:
+   - Keep "first degree", "second degree", "third degree" as is
+   - Example: "first degree burn" → "first degree burn"
 
 Common symptom categories to look for:
 - Pain (headache, chest pain, back pain, etc.)
 - Respiratory (cough, shortness of breath, wheezing, etc.)
 - Digestive (nausea, vomiting, diarrhea, constipation, etc.)
 - General (fever, fatigue, dizziness, weakness, etc.)
-- Skin (rash, itching, swelling, etc.)
+- Skin (rash, itching, swelling, burns, cuts, etc.)
 - Neurological (confusion, memory loss, numbness, etc.)
 - Psychological (anxiety, depression, insomnia, etc.)
 
+Common severity modifiers:
+- mild, moderate, severe
+- acute, chronic
+- intermittent, constant
+- sharp, dull, throbbing
+- intense, unbearable
+- minor, small, tiny, slight
+
 Patient text: "{text}"
 
-Extract symptoms and return as JSON array of strings:"""
+Extract symptoms and return as JSON array of strings. Remember to normalize symptoms according to the rules above:"""
 
         try:
             payload = {
@@ -249,48 +304,54 @@ Extract symptoms and return as JSON array of strings:"""
                 "max_tokens": 1000,
                 "top_p": 0.9
             }
-            
-            logger.info(f"Querying Llama for: {text[:50]}...")  # Truncate long text
+            logger.info(f"[DIAGNOSTIC] Querying Llama for: {text[:50]}...")
             response = requests.post(
                 self.llama_api_url, 
                 headers=self.llama_headers, 
                 json=payload,
-                timeout=60
+                timeout=120
             )
-            
+            logger.info(f"[DIAGNOSTIC] Llama API response status: {response.status_code}")
+            logger.info(f"[DIAGNOSTIC] Llama API response content: {response.text}")
+            print(f"[PRINT DIAGNOSTIC] Llama API response status: {response.status_code}")
+            print(f"[PRINT DIAGNOSTIC] Llama API response content: {response.text}")
             if response.status_code == 200:
                 result = response.json()
                 content = result['choices'][0]['message']['content'].strip()
-                
+                print(f"[PRINT DIAGNOSTIC] Llama API parsed content: {content}")
+                logger.info(f"[DIAGNOSTIC] Llama API parsed content: {content}")
                 try:
                     json_start = content.find('[')
                     json_end = content.rfind(']') + 1
-                    
                     if json_start != -1 and json_end != 0:
                         json_content = content[json_start:json_end]
                         symptoms = json.loads(json_content)
-                        logger.info(f"Found {len(symptoms)} symptoms")
+                        logger.info(f"[DIAGNOSTIC] Parsed symptoms: {symptoms}")
+                        print(f"[PRINT DIAGNOSTIC] Parsed symptoms: {symptoms}")
                         return symptoms
                     else:
-                        logger.warning("No symptoms found in response")
+                        logger.warning("[DIAGNOSTIC] No symptoms found in response content")
+                        print("[PRINT DIAGNOSTIC] No symptoms found in response content")
                         return []
-                        
                 except json.JSONDecodeError as e:
-                    logger.error(f"JSON parse error: {e}")
+                    logger.error(f"[DIAGNOSTIC] JSON parse error: {e}")
+                    print(f"[PRINT DIAGNOSTIC] JSON parse error: {e}")
                     return []
-                    
             else:
-                logger.error(f"API error: {response.status_code}")
+                logger.error(f"[DIAGNOSTIC] API error: {response.status_code}")
+                print(f"[PRINT DIAGNOSTIC] API error: {response.status_code}")
                 return []
-                
         except requests.exceptions.Timeout:
-            logger.error("API timeout")
+            logger.error("[DIAGNOSTIC] API timeout")
+            print("[PRINT DIAGNOSTIC] API timeout")
             return []
         except requests.exceptions.RequestException as e:
-            logger.error(f"Request failed: {e}")
+            logger.error(f"[DIAGNOSTIC] Request failed: {e}")
+            print(f"[PRINT DIAGNOSTIC] Request failed: {e}")
             return []
         except Exception as e:
-            logger.error(f"Unexpected error: {e}")
+            logger.error(f"[DIAGNOSTIC] Unexpected error: {e}")
+            print(f"[PRINT DIAGNOSTIC] Unexpected error: {e}")
             return []
 
     def _query_umls_api(self, symptoms: List[str]) -> List[str]:
@@ -312,7 +373,7 @@ Extract symptoms and return as JSON array of strings:"""
             auth_response = None
             for attempt in range(max_retries):
                 try:
-                    auth_response = requests.post(auth_endpoint, data=auth_params, timeout=15)
+                    auth_response = requests.post(auth_endpoint, data=auth_params, timeout=30)
                     if auth_response.status_code == 201:
                         # Extract TGT URL from HTML response
                         html_content = auth_response.text
@@ -458,23 +519,31 @@ Extract symptoms and return as JSON array of strings:"""
         """Fallback extraction using spaCy patterns"""
         doc = self.nlp(text)
         symptoms = []
-        
+        # Use phrase matcher for multi-word symptoms
+        phrase_matches = self.phrase_matcher(doc)
+        for match_id, start, end in phrase_matches:
+            span = doc[start:end]
+            symptom = span.text.lower()
+            if symptom in self.symptom_db['common_symptoms']:
+                symptoms.append(symptom)
         # Use pattern matcher
         matches = self.matcher(doc)
-        
         for match_id, start, end in matches:
             span = doc[start:end]
-            
-            # Extract potential symptoms from the matched span
-            for token in span:
-                if (token.pos_ in ["NOUN", "ADJ"] and 
-                    not self._is_negated(doc[max(0, start-3):min(len(doc), end+3)])):
-                    
-                    # Check if it's a known symptom
-                    if any(symptom in token.text.lower() 
-                           for symptom in self.symptom_db['common_symptoms']):
+            for i, token in enumerate(span):
+                if token.pos_ == "ADJ" and i + 1 < len(span):
+                    next_token = span[i + 1]
+                    if next_token.pos_ in ["NOUN", "ADJ"]:
+                        potential_symptom = f"{token.text.lower()} {next_token.text.lower()}"
+                        if any(symptom == potential_symptom for symptom in self.symptom_db['common_symptoms']):
+                            symptoms.append(potential_symptom)
+                            continue
+                        if any(symptom == next_token.text.lower() for symptom in self.symptom_db['common_symptoms']):
+                            symptoms.append(potential_symptom)
+                            continue
+                if token.pos_ in ["NOUN", "ADJ"] and not self._is_negated(doc[max(0, start-3):min(len(doc), end+3)]):
+                    if any(symptom == token.text.lower() for symptom in self.symptom_db['common_symptoms']):
                         symptoms.append(token.text.lower())
-        
         return symptoms
 
     def _is_negated(self, context) -> bool:
@@ -498,7 +567,70 @@ Extract symptoms and return as JSON array of strings:"""
                 # Remove extra whitespace and convert to lowercase
                 clean_symptom = ' '.join(symptom.strip().lower().split())
                 if clean_symptom and len(clean_symptom) > 2:  # Avoid single chars/empty
-                    cleaned.append(clean_symptom)
+                    # Normalize symptom descriptions
+                    words = clean_symptom.split()
+                    
+                    # Handle severity modifiers
+                    severity_modifiers = {
+                        'small': 'minor',
+                        'tiny': 'minor',
+                        'slight': 'minor',
+                        'minimal': 'minor',
+                        'superficial': 'minor',
+                        'mild': 'mild',
+                        'moderate': 'moderate',
+                        'severe': 'severe',
+                        'intense': 'severe',
+                        'extreme': 'severe',
+                        'acute': 'acute',
+                        'chronic': 'chronic'
+                    }
+                    
+                    # Handle location modifiers
+                    location_modifiers = {
+                        'on': 'on',
+                        'in': 'in',
+                        'at': 'at',
+                        'of': 'of',
+                        'the': 'the'
+                    }
+                    
+                    # Normalize the symptom
+                    normalized_words = []
+                    i = 0
+                    while i < len(words):
+                        word = words[i]
+                        
+                        # Check for severity modifier
+                        if word in severity_modifiers:
+                            normalized_words.append(severity_modifiers[word])
+                        # Check for location modifier
+                        elif word in location_modifiers:
+                            # Keep location modifiers and the following word (body part)
+                            normalized_words.append(word)
+                            if i + 1 < len(words):
+                                normalized_words.append(words[i + 1])
+                                i += 1
+                        # Check for degree-based severity
+                        elif word in ['first', 'second', 'third'] and i + 1 < len(words) and words[i + 1] == 'degree':
+                            normalized_words.extend([word, 'degree'])
+                            i += 1
+                        # Keep other words as is
+                        else:
+                            normalized_words.append(word)
+                        i += 1
+                    
+                    # Reconstruct the normalized symptom
+                    clean_symptom = ' '.join(normalized_words)
+                    
+                    # Check if this is a modified symptom
+                    if len(normalized_words) > 1:
+                        # If it's a modified symptom, keep it as is
+                        cleaned.append(clean_symptom)
+                    else:
+                        # For single words, check if they're in our symptom database
+                        if any(s == clean_symptom for s in self.symptom_db['common_symptoms']):
+                            cleaned.append(clean_symptom)
         
         # Remove duplicates while preserving order
         seen = set()
@@ -520,30 +652,35 @@ Extract symptoms and return as JSON array of strings:"""
 
     def extract_symptoms(self, text: str) -> List[str]:
         """Main method to extract symptoms from text using Llama 3.3 and UMLS"""
+        print("[PRINT DIAGNOSTIC] extract_symptoms called")
+        logger.info("[DIAGNOSTIC] extract_symptoms called with text: %s", text)
         if not text or not text.strip():
             return []
         
         logger.info(f"Processing: {text[:50]}...")  # Truncate long text
         
-        all_symptoms = []
-        
-        # Primary extraction using Llama 3.3
+        # First try Llama extraction
         try:
             llama_symptoms = self._query_llama_for_symptoms(text)
+            logger.info(f"[DIAGNOSTIC] Llama symptoms: {llama_symptoms}")
+            print(f"[PRINT DIAGNOSTIC] Llama symptoms: {llama_symptoms}")
+            
             if llama_symptoms:
-                all_symptoms.extend(llama_symptoms)
+                logger.info("[DIAGNOSTIC] Using Llama symptoms")
+                print("[PRINT DIAGNOSTIC] Using Llama symptoms")
+                symptoms = llama_symptoms
             else:
-                logger.warning("Using fallback extraction")
-                fallback_symptoms = self._basic_pattern_extraction(text)
-                all_symptoms.extend(fallback_symptoms)
+                logger.warning("[DIAGNOSTIC] Llama returned no symptoms, using fallback extraction")
+                print("[PRINT DIAGNOSTIC] Llama returned no symptoms, using fallback extraction")
+                symptoms = self._basic_pattern_extraction(text)
                 
         except Exception as e:
-            logger.error(f"Extraction failed: {e}")
-            fallback_symptoms = self._basic_pattern_extraction(text)
-            all_symptoms.extend(fallback_symptoms)
+            logger.error(f"[DIAGNOSTIC] Llama extraction failed: {e}")
+            print(f"[PRINT DIAGNOSTIC] Llama extraction failed: {e}")
+            symptoms = self._basic_pattern_extraction(text)
         
-        # Clean and deduplicate
-        cleaned_symptoms = self._clean_and_deduplicate(all_symptoms)
+        # Clean and deduplicate symptoms
+        cleaned_symptoms = self._clean_and_deduplicate(symptoms)
         
         # Validate and enhance with UMLS if enabled
         if self.use_umls_api and cleaned_symptoms:
@@ -573,6 +710,7 @@ def test_llama_symptom_extractor():
     
     # Test cases
     test_texts = [
+        "I have a mild fever",
         "I've been having a severe headache for the past two days.",
         "My throat is really sore and I have a high fever of 101°F.",
         "I feel dizzy when I stand up and I've been coughing a lot with phlegm.",

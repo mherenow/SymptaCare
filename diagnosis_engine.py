@@ -38,12 +38,14 @@ class DiagnosisEngine:
             "emergency": ["heart attack", "stroke", "severe bleeding", "breathing difficulty", 
                          "chest pain", "severe head injury", "seizure", "unconsciousness",
                          "anaphylaxis", "severe burn", "poisoning", "suicide attempt"],
-            "urgent": ["broken bone", "deep wound", "high fever", "severe pain", 
+            "severe": ["broken bone", "deep wound", "high fever", "severe pain", 
                       "dehydration", "infection", "moderate burn", "concussion",
                       "severe vomiting", "severe diarrhea", "asthma attack", "allergic reaction"],
-            "non_urgent": ["common cold", "minor ache", "rash", "sore throat", "earache",
-                          "minor burn", "minor cut", "insect bite", "mild fever",
-                          "mild pain", "mild nausea", "mild diarrhea", "cough"]
+            "moderate": ["common cold", "earache", "sore throat", "mild fever",
+                        "mild pain", "mild nausea", "mild diarrhea", "cough",
+                        "mild headache", "mild rash", "mild allergies"],
+            "mild": ["minor ache", "minor burn", "minor cut", "insect bite",
+                    "mild skin irritation", "mild congestion", "mild soreness"]
         }
         
         # Age-specific condition weights
@@ -334,29 +336,37 @@ class DiagnosisEngine:
             for emergency_symptom in self.severity_levels["emergency"]:
                 if fuzz.token_sort_ratio(symptom, emergency_symptom) > 85:
                     return "emergency", "Seek immediate medical attention"
-        
         # Check if any of the top conditions are emergencies
         for condition in conditions:
             condition_name = condition["condition"].lower()
-            
             # Check emergency conditions
             for emergency_condition in self.severity_levels["emergency"]:
                 if fuzz.token_sort_ratio(condition_name, emergency_condition) > 85:
                     return "emergency", "Seek immediate medical attention"
-            
-            # Check urgent conditions
-            for urgent_condition in self.severity_levels["urgent"]:
-                if fuzz.token_sort_ratio(condition_name, urgent_condition) > 85:
-                    return "urgent", "Seek medical attention within 24 hours"
-        
-        # Check if confidence is high for non-emergency conditions
-        if conditions and conditions[0]["confidence"] > 70:
-            # Check if it's a minor condition
-            condition_name = conditions[0]["condition"].lower()
-            for minor_condition in self.severity_levels["non_urgent"]:
-                if fuzz.token_sort_ratio(condition_name, minor_condition) > 85:
-                    return "non_urgent", "Self-care may be appropriate"
-        
+            # Check severe conditions
+            for severe_condition in self.severity_levels["severe"]:
+                if fuzz.token_sort_ratio(condition_name, severe_condition) > 85:
+                    return "severe", "Seek medical attention within 24 hours"
+        # Check for moderate symptoms/conditions regardless of confidence
+        for symptom in symptoms:
+            for moderate_condition in self.severity_levels["moderate"]:
+                if fuzz.token_sort_ratio(symptom, moderate_condition) > 85:
+                    return "moderate", "Consider consulting a healthcare provider"
+        for condition in conditions:
+            condition_name = condition["condition"].lower()
+            for moderate_condition in self.severity_levels["moderate"]:
+                if fuzz.token_sort_ratio(condition_name, moderate_condition) > 85:
+                    return "moderate", "Consider consulting a healthcare provider"
+        # Check for mild symptoms/conditions regardless of confidence
+        for symptom in symptoms:
+            for mild_condition in self.severity_levels["mild"]:
+                if fuzz.token_sort_ratio(symptom, mild_condition) > 85:
+                    return "mild", "Self-care may be appropriate"
+        for condition in conditions:
+            condition_name = condition["condition"].lower()
+            for mild_condition in self.severity_levels["mild"]:
+                if fuzz.token_sort_ratio(condition_name, mild_condition) > 85:
+                    return "mild", "Self-care may be appropriate"
         # Default to caution
         return "moderate", "Consider consulting a healthcare provider"
     
@@ -381,7 +391,6 @@ class DiagnosisEngine:
         
         if not conditions:
             response = {
-                "diagnosis_summary": "Unable to determine a specific diagnosis with the provided symptoms.",
                 "conditions": [],
                 "severity": "unknown",
                 "advice": "If symptoms persist, please consult with a healthcare provider.",
@@ -389,20 +398,17 @@ class DiagnosisEngine:
             }
         else:
             top_condition = conditions[0]["condition"]
-            confidence = conditions[0]["confidence"]
-            confidence_level = "high" if confidence > 75 else "moderate" if confidence > 50 else "low"
             
             # Always provide home remedies if available for the most likely condition
             home_remedies = self._get_home_remedies(top_condition)
             
             response = {
-                "diagnosis_summary": f"Based on your symptoms, the most likely condition is {top_condition} (confidence: {confidence_level}).",
                 "conditions": conditions,
                 "severity": severity,
                 "advice": severity_advice,
                 "home_remedies": home_remedies
             }
-              # Add disclaimer
+            # Add disclaimer
             response["disclaimer"] = "This is not a definitive medical diagnosis. Always consult with a healthcare professional for proper evaluation."
         
         return response
@@ -412,7 +418,6 @@ class DiagnosisEngine:
         logger.info(f"Processing diagnosis request for age={age}, sex={sex}, symptoms={symptoms}")
         if not symptoms:
             return {
-                "diagnosis_summary": "No symptoms provided. Please describe your symptoms for a diagnosis.",
                 "conditions": [],
                 "severity": "unknown",
                 "advice": "If you're experiencing symptoms, please provide details for better guidance.",
