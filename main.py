@@ -2,7 +2,7 @@ from fastapi import FastAPI, HTTPException, Request
 from fastapi.middleware.cors import CORSMiddleware
 from pydantic import BaseModel
 from typing import List, Optional
-from symptom_extractor import SymptomExtractor
+from symptom_extractor import LlamaSymptomExtractor
 from diagnosis_engine import DiagnosisEngine
 import uvicorn
 
@@ -18,7 +18,7 @@ app.add_middleware(
 )
 
 # Initialize the SymptomExtractor and DiagnosisEngine
-symptom_extractor = SymptomExtractor()
+symptom_extractor = LlamaSymptomExtractor()
 diagnosis_engine = DiagnosisEngine()
 
 # Define the request model
