@@ -37,13 +37,26 @@ class DiagnosisEngine:
         self.severity_levels = {
             "emergency": ["heart attack", "stroke", "severe bleeding", "breathing difficulty", 
                          "chest pain", "severe head injury", "seizure", "unconsciousness",
-                         "anaphylaxis", "severe burn", "poisoning", "suicide attempt"],
+                         "anaphylaxis", "severe burn", "poisoning", "suicide attempt",
+                         "lack of responsiveness", "severe yellowing of skin", "severe unusual drowsiness",
+                         "severe liver failure", "acute liver failure", "severe liver damage",
+                         "severe skin turning yellow", "severe yellowish skin", "severe yellowish eyes",
+                         "severe yellow tint to skin", "severe yellow tint to eyes"],
             "severe": ["broken bone", "deep wound", "high fever", "severe pain", 
                       "dehydration", "infection", "moderate burn", "concussion",
-                      "severe vomiting", "severe diarrhea", "asthma attack", "allergic reaction"],
+                      "severe vomiting", "severe diarrhea", "asthma attack", "allergic reaction",
+                      "moderate yellowing of skin", "moderate unusual drowsiness",
+                      "liver disease", "hepatitis", "liver damage", "jaundice",
+                      "skin turning yellow", "skin taking on yellow shade", "skin becoming yellow",
+                      "yellow tint to skin", "yellowish skin", "yellowish discoloration",
+                      "yellowish tint", "yellowish hue", "yellowish cast",
+                      "eyes turning yellow", "eyes taking on yellow shade", "eyes becoming yellow",
+                      "yellow tint to eyes", "yellowish eyes", "yellowish discoloration of eyes",
+                      "yellowish tint in eyes", "yellowish hue in eyes", "yellowish cast in eyes"],
             "moderate": ["common cold", "earache", "sore throat", "mild fever",
                         "mild pain", "mild nausea", "mild diarrhea", "cough",
-                        "mild headache", "mild rash", "mild allergies"],
+                        "mild headache", "mild rash", "mild allergies",
+                        "mild yellowing of skin", "mild unusual drowsiness"],
             "mild": ["minor ache", "minor burn", "minor cut", "insect bite",
                     "mild skin irritation", "mild congestion", "mild soreness"]
         }
@@ -185,8 +198,8 @@ class DiagnosisEngine:
             # Cardiovascular conditions
             "hypertension": ["headache", "shortness of breath", "chest pain", "dizziness", "blurred vision"],
             "heart attack": ["chest pain", "shortness of breath", "pain in arms", "cold sweat", "nausea", "dizziness"],
-            "stroke": ["sudden numbness", "confusion", "trouble speaking", "trouble walking", "severe headache", "dizziness"],
-            "heart failure": ["shortness of breath", "fatigue", "swelling", "rapid heartbeat", "persistent cough"],
+            "stroke": ["sudden numbness", "confusion", "trouble speaking", "trouble walking", "severe headache", "dizziness", "lack of responsiveness"],
+            "heart failure": ["shortness of breath", "fatigue", "swelling", "rapid heartbeat", "persistent cough", "unusual drowsiness"],
             
             # Gastrointestinal conditions
             "gastroenteritis": ["diarrhea", "nausea", "vomiting", "abdominal cramps", "mild fever", "headache"],
@@ -196,13 +209,30 @@ class DiagnosisEngine:
             "food poisoning": ["nausea", "vomiting", "diarrhea", "abdominal cramps", "fever", "headache"],
             "gallstones": ["upper abdominal pain", "nausea", "vomiting", "back pain", "digestive problems"],
             "celiac disease": ["diarrhea", "bloating", "gas", "fatigue", "weight loss", "anemia"],
+            "liver disease": ["yellowing of skin", "abdominal pain", "fatigue", "nausea", "vomiting", "unusual drowsiness", "lack of responsiveness",
+                            "skin turning yellow", "skin taking on yellow shade", "skin becoming yellow",
+                            "yellow tint to skin", "yellowish skin", "yellowish discoloration",
+                            "yellowish tint", "yellowish hue", "yellowish cast",
+                            "eyes turning yellow", "eyes taking on yellow shade", "eyes becoming yellow",
+                            "yellow tint to eyes", "yellowish eyes", "yellowish discoloration of eyes",
+                            "yellowish tint in eyes", "yellowish hue in eyes", "yellowish cast in eyes"],
+            "hepatitis": ["yellowing of skin", "abdominal pain", "fatigue", "nausea", "vomiting", "unusual drowsiness",
+                         "skin turning yellow", "skin taking on yellow shade", "skin becoming yellow",
+                         "yellow tint to skin", "yellowish skin", "yellowish discoloration",
+                         "yellowish tint", "yellowish hue", "yellowish cast",
+                         "eyes turning yellow", "eyes taking on yellow shade", "eyes becoming yellow",
+                         "yellow tint to eyes", "yellowish eyes", "yellowish discoloration of eyes",
+                         "yellowish tint in eyes", "yellowish hue in eyes", "yellowish cast in eyes"],
             
             # Neurological conditions
             "migraine": ["severe headache", "nausea", "vomiting", "light sensitivity", "sound sensitivity", "vision changes"],
             "tension headache": ["dull headache", "pressure sensation", "tenderness", "tightness"],
-            "epilepsy": ["seizures", "confusion", "staring spells", "jerky movements", "loss of consciousness"],
+            "epilepsy": ["seizures", "confusion", "staring spells", "jerky movements", "loss of consciousness", "lack of responsiveness"],
             "multiple sclerosis": ["fatigue", "vision problems", "numbness", "tingling", "weakness", "balance problems"],
             "parkinson's disease": ["tremor", "stiffness", "slow movement", "balance problems", "speech changes"],
+            "brain injury": ["headache", "confusion", "dizziness", "nausea", "vomiting", "unusual drowsiness", "lack of responsiveness"],
+            "meningitis": ["severe headache", "fever", "stiff neck", "confusion", "unusual drowsiness", "lack of responsiveness"],
+            "encephalitis": ["fever", "headache", "confusion", "seizures", "unusual drowsiness", "lack of responsiveness"],
             
             # Musculoskeletal conditions
             "arthritis": ["joint pain", "stiffness", "swelling", "reduced range of motion", "redness"],
@@ -217,6 +247,7 @@ class DiagnosisEngine:
             "acne": ["pimples", "whiteheads", "blackheads", "red spots", "oily skin"],
             "rosacea": ["facial redness", "swollen bumps", "eye problems", "enlarged nose"],
             "contact dermatitis": ["red rash", "itching", "burning", "swelling", "blisters"],
+            "jaundice": ["yellowing of skin", "yellowing of eyes", "dark urine", "pale stools", "itching", "fatigue"],
             
             # Mental health conditions
             "depression": ["sadness", "loss of interest", "sleep changes", "fatigue", "difficulty concentrating", "suicidal thoughts"],
@@ -227,13 +258,13 @@ class DiagnosisEngine:
             
             # Endocrine conditions
             "diabetes": ["increased thirst", "frequent urination", "extreme hunger", "unexplained weight loss", "fatigue", "blurred vision"],
-            "hypothyroidism": ["fatigue", "weight gain", "cold sensitivity", "constipation", "dry skin", "depression"],
+            "hypothyroidism": ["fatigue", "weight gain", "cold sensitivity", "constipation", "dry skin", "depression", "unusual drowsiness"],
             "hyperthyroidism": ["weight loss", "rapid heartbeat", "increased appetite", "anxiety", "tremor", "sweating"],
-            "adrenal insufficiency": ["fatigue", "weight loss", "abdominal pain", "nausea", "vomiting", "low blood pressure"],
+            "adrenal insufficiency": ["fatigue", "weight loss", "abdominal pain", "nausea", "vomiting", "low blood pressure", "unusual drowsiness"],
             
             # Infectious diseases
             "tuberculosis": ["cough", "chest pain", "bloody sputum", "fatigue", "fever", "night sweats", "weight loss"],
-            "malaria": ["fever", "chills", "headache", "muscle aches", "fatigue", "nausea", "vomiting"],
+            "malaria": ["fever", "chills", "headache", "muscle aches", "fatigue", "nausea", "vomiting", "unusual drowsiness"],
             "lyme disease": ["rash", "fever", "chills", "fatigue", "body aches", "headache", "joint pain"],
             "mono": ["fatigue", "sore throat", "fever", "swollen lymph nodes", "headache", "rash"],
             
@@ -245,7 +276,8 @@ class DiagnosisEngine:
             "minor cut": ["skin break", "bleeding", "localized pain"],
             "minor burn": ["redness", "pain", "swelling", "blisters"],
             "sunburn": ["red skin", "pain", "swelling", "blisters", "peeling skin"],
-            "minor cough": ["throat irritation", "chest discomfort"]        }
+            "minor cough": ["throat irritation", "chest discomfort"]
+        }
     
     def _get_age_group(self, age):
         """Determine age group based on age"""
@@ -333,9 +365,18 @@ class DiagnosisEngine:
         """Assess the severity of the conditions and symptoms"""
         # Check for emergency symptoms first
         for symptom in symptoms:
+            # Check for emergency-level jaundice symptoms
+            if any(emergency_symptom in symptom.lower() for emergency_symptom in [
+                "severe yellowing", "severe yellowish", "severe yellow tint",
+                "severe skin turning yellow", "severe eyes turning yellow"
+            ]):
+                return "emergency", "Seek immediate medical attention - severe jaundice symptoms detected"
+            
+            # Check other emergency symptoms
             for emergency_symptom in self.severity_levels["emergency"]:
                 if fuzz.token_sort_ratio(symptom, emergency_symptom) > 85:
                     return "emergency", "Seek immediate medical attention"
+        
         # Check if any of the top conditions are emergencies
         for condition in conditions:
             condition_name = condition["condition"].lower()
@@ -347,11 +388,36 @@ class DiagnosisEngine:
             for severe_condition in self.severity_levels["severe"]:
                 if fuzz.token_sort_ratio(condition_name, severe_condition) > 85:
                     return "severe", "Seek medical attention within 24 hours"
+        
         # Check for moderate symptoms/conditions regardless of confidence
         for symptom in symptoms:
+            # Check for moderate-level jaundice symptoms
+            if any(moderate_symptom in symptom.lower() for moderate_symptom in [
+                "mild yellowing", "mild yellowish", "mild yellow tint",
+                "mild skin turning yellow", "mild eyes turning yellow"
+            ]):
+                return "moderate", "Consider consulting a healthcare provider - mild jaundice symptoms detected"
+            
+            # Check other moderate symptoms
             for moderate_condition in self.severity_levels["moderate"]:
                 if fuzz.token_sort_ratio(symptom, moderate_condition) > 85:
                     return "moderate", "Consider consulting a healthcare provider"
+        
+        # Check for severe symptoms that aren't emergencies
+        for symptom in symptoms:
+            # Check for severe-level jaundice symptoms
+            if any(severe_symptom in symptom.lower() for severe_symptom in [
+                "yellowing", "yellowish", "yellow tint",
+                "skin turning yellow", "eyes turning yellow"
+            ]):
+                return "severe", "Seek medical attention within 24 hours - jaundice symptoms detected"
+            
+            # Check other severe symptoms
+            for severe_condition in self.severity_levels["severe"]:
+                if fuzz.token_sort_ratio(symptom, severe_condition) > 85:
+                    return "severe", "Seek medical attention within 24 hours"
+        
+        # Default to caution
         for condition in conditions:
             condition_name = condition["condition"].lower()
             for moderate_condition in self.severity_levels["moderate"]:
@@ -486,6 +552,11 @@ if __name__ == "__main__":
         {
             "symptoms": ["chest pain"],
             "age": 68,
+            "sex": "male"
+        },
+        {
+            "symptoms": ["severe wound on knee"],
+            "age": 21,
             "sex": "male"
         }
     

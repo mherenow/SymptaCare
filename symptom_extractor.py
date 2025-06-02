@@ -117,6 +117,7 @@ class LlamaSymptomExtractor:
             "fainting", "weight loss", "weight gain", "night sweats", "sweating",
             "dehydration", "thirst", "swelling", "inflammation", "malaise",
             "lethargy", "exhaustion", "general discomfort", "body temperature changes",
+            "unusual drowsiness", "lack of responsiveness", "altered mental status",
             
             # Skin symptoms
             "rash", "itching", "hives", "dry skin", "bruising", "bleeding",
@@ -125,6 +126,13 @@ class LlamaSymptomExtractor:
             "skin irritation", "skin sensitivity", "skin dryness", "skin oiliness",
             "burn", "minor burn", "small burn", "first degree burn", "second degree burn",
             "third degree burn", "chemical burn", "thermal burn", "sunburn",
+            "yellowing of skin", "yellowing of eyes", "jaundice",
+            "skin turning yellow", "skin taking on yellow shade", "skin becoming yellow",
+            "yellow tint to skin", "yellowish skin", "yellowish discoloration",
+            "yellowish tint", "yellowish hue", "yellowish cast",
+            "eyes turning yellow", "eyes taking on yellow shade", "eyes becoming yellow",
+            "yellow tint to eyes", "yellowish eyes", "yellowish discoloration of eyes",
+            "yellowish tint in eyes", "yellowish hue in eyes", "yellowish cast in eyes",
             
             # Neurological symptoms
             "confusion", "memory loss", "trouble speaking", "seizure", "tremor",
@@ -201,8 +209,28 @@ class LlamaSymptomExtractor:
              {"LEMMA": {"IN": ["be", "feel", "hurt", "ache", "pain"]}},
              {"POS": {"IN": ["ADJ", "NOUN"]}, "OP": "+"}]
         ]
+        # Pattern for "skin/eyes [verb] [color]"
+        color_change_patterns = [
+            [{"LOWER": {"IN": ["skin", "eyes"]}},
+             {"LEMMA": {"IN": ["turn", "take", "become", "change", "appear", "look"]}},
+             {"OP": "*", "POS": {"IN": ["ADP", "DET", "ADV"]}},
+             {"LOWER": {"IN": ["yellow", "yellowish", "yellow-tinted", "yellow-hued"]}},
+             {"OP": "*", "POS": {"IN": ["NOUN", "ADJ"]}}]
+        ]
+        # Pattern for "[body part] [verb] [color]"
+        body_color_patterns = [
+            [{"POS": "NOUN"},
+             {"LEMMA": {"IN": ["turn", "take", "become", "change", "appear", "look"]}},
+             {"OP": "*", "POS": {"IN": ["ADP", "DET", "ADV"]}},
+             {"LOWER": {"IN": ["yellow", "yellowish", "yellow-tinted", "yellow-hued"]}},
+             {"OP": "*", "POS": {"IN": ["NOUN", "ADJ"]}}]
+        ]
+        
         self.matcher.add("SYMPTOM_HAVE", have_patterns)
         self.matcher.add("SYMPTOM_BODY_PART", body_part_patterns)
+        self.matcher.add("COLOR_CHANGE", color_change_patterns)
+        self.matcher.add("BODY_COLOR", body_color_patterns)
+        
         # Add phrase matcher for multi-word symptoms
         multi_word_symptoms = [symptom for symptom in self.symptom_db['common_symptoms'] if ' ' in symptom]
         patterns = [self.nlp(symptom) for symptom in multi_word_symptoms]
@@ -314,46 +342,34 @@ Extract symptoms and return as JSON array of strings. Remember to normalize symp
                 timeout=120
             )
             logger.info(f"[DIAGNOSTIC] Llama API response status: {response.status_code}")
-            logger.info(f"[DIAGNOSTIC] Llama API response content: {response.text}")
-            print(f"[PRINT DIAGNOSTIC] Llama API response status: {response.status_code}")
-            print(f"[PRINT DIAGNOSTIC] Llama API response content: {response.text}")
             if response.status_code == 200:
                 result = response.json()
                 content = result['choices'][0]['message']['content'].strip()
-                print(f"[PRINT DIAGNOSTIC] Llama API parsed content: {content}")
-                logger.info(f"[DIAGNOSTIC] Llama API parsed content: {content}")
                 try:
                     json_start = content.find('[')
                     json_end = content.rfind(']') + 1
                     if json_start != -1 and json_end != 0:
                         json_content = content[json_start:json_end]
                         symptoms = json.loads(json_content)
-                        logger.info(f"[DIAGNOSTIC] Parsed symptoms: {symptoms}")
-                        print(f"[PRINT DIAGNOSTIC] Parsed symptoms: {symptoms}")
+                        logger.info(f"[DIAGNOSTIC] Extracted symptoms: {symptoms}")
                         return symptoms
                     else:
                         logger.warning("[DIAGNOSTIC] No symptoms found in response content")
-                        print("[PRINT DIAGNOSTIC] No symptoms found in response content")
                         return []
                 except json.JSONDecodeError as e:
                     logger.error(f"[DIAGNOSTIC] JSON parse error: {e}")
-                    print(f"[PRINT DIAGNOSTIC] JSON parse error: {e}")
                     return []
             else:
                 logger.error(f"[DIAGNOSTIC] API error: {response.status_code}")
-                print(f"[PRINT DIAGNOSTIC] API error: {response.status_code}")
                 return []
         except requests.exceptions.Timeout:
             logger.error("[DIAGNOSTIC] API timeout")
-            print("[PRINT DIAGNOSTIC] API timeout")
             return []
         except requests.exceptions.RequestException as e:
             logger.error(f"[DIAGNOSTIC] Request failed: {e}")
-            print(f"[PRINT DIAGNOSTIC] Request failed: {e}")
             return []
         except Exception as e:
             logger.error(f"[DIAGNOSTIC] Unexpected error: {e}")
-            print(f"[PRINT DIAGNOSTIC] Unexpected error: {e}")
             return []
 
     def _query_umls_api(self, symptoms: List[str]) -> List[str]:
@@ -521,6 +537,7 @@ Extract symptoms and return as JSON array of strings. Remember to normalize symp
         """Fallback extraction using spaCy patterns"""
         doc = self.nlp(text)
         symptoms = []
+        
         # Use phrase matcher for multi-word symptoms
         phrase_matches = self.phrase_matcher(doc)
         for match_id, start, end in phrase_matches:
@@ -528,24 +545,51 @@ Extract symptoms and return as JSON array of strings. Remember to normalize symp
             symptom = span.text.lower()
             if symptom in self.symptom_db['common_symptoms']:
                 symptoms.append(symptom)
+        
         # Use pattern matcher
         matches = self.matcher(doc)
         for match_id, start, end in matches:
             span = doc[start:end]
-            for i, token in enumerate(span):
-                if token.pos_ == "ADJ" and i + 1 < len(span):
-                    next_token = span[i + 1]
-                    if next_token.pos_ in ["NOUN", "ADJ"]:
-                        potential_symptom = f"{token.text.lower()} {next_token.text.lower()}"
-                        if any(symptom == potential_symptom for symptom in self.symptom_db['common_symptoms']):
-                            symptoms.append(potential_symptom)
-                            continue
-                        if any(symptom == next_token.text.lower() for symptom in self.symptom_db['common_symptoms']):
-                            symptoms.append(potential_symptom)
-                            continue
-                if token.pos_ in ["NOUN", "ADJ"] and not self._is_negated(doc[max(0, start-3):min(len(doc), end+3)]):
-                    if any(symptom == token.text.lower() for symptom in self.symptom_db['common_symptoms']):
-                        symptoms.append(token.text.lower())
+            match_type = self.nlp.vocab.strings[match_id]
+            
+            if match_type in ["COLOR_CHANGE", "BODY_COLOR"]:
+                # Extract the body part and color
+                body_part = span[0].text.lower()
+                color = span[-2].text.lower()  # The color word
+                
+                # Map to standard symptom
+                if color in ["yellow", "yellowish", "yellow-tinted", "yellow-hued"]:
+                    if body_part == "skin":
+                        symptoms.append("yellowing of skin")
+                    elif body_part == "eyes":
+                        symptoms.append("yellowing of eyes")
+                    else:
+                        symptoms.append("jaundice")
+            
+            elif match_type == "SYMPTOM_HAVE":
+                for i, token in enumerate(span):
+                    if token.pos_ == "ADJ" and i + 1 < len(span):
+                        next_token = span[i + 1]
+                        if next_token.pos_ in ["NOUN", "ADJ"]:
+                            potential_symptom = f"{token.text.lower()} {next_token.text.lower()}"
+                            if any(symptom == potential_symptom for symptom in self.symptom_db['common_symptoms']):
+                                symptoms.append(potential_symptom)
+                                continue
+                            if any(symptom == next_token.text.lower() for symptom in self.symptom_db['common_symptoms']):
+                                symptoms.append(potential_symptom)
+                                continue
+                    if token.pos_ in ["NOUN", "ADJ"] and not self._is_negated(doc[max(0, start-3):min(len(doc), end+3)]):
+                        if any(symptom == token.text.lower() for symptom in self.symptom_db['common_symptoms']):
+                            symptoms.append(token.text.lower())
+            
+            elif match_type == "SYMPTOM_BODY_PART":
+                body_part = span[1].text.lower()
+                condition = span[-1].text.lower()
+                if not self._is_negated(doc[max(0, start-3):min(len(doc), end+3)]):
+                    potential_symptom = f"{condition} in {body_part}"
+                    if any(symptom == potential_symptom for symptom in self.symptom_db['common_symptoms']):
+                        symptoms.append(potential_symptom)
+        
         return symptoms
 
     def _is_negated(self, context) -> bool:

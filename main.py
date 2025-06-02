@@ -23,9 +23,9 @@ app.add_middleware(
 symptom_extractor = LlamaSymptomExtractor()
 diagnosis_engine = DiagnosisEngine()
 
-print("[DIAGNOSTIC] NVIDIA_API_KEY at runtime:", os.getenv("NVIDIA_API_KEY"))
-print("[DIAGNOSTIC] Symptom extractor class:", type(symptom_extractor))
-print("[DIAGNOSTIC] Extractor uses Llama key:", getattr(symptom_extractor, 'nvidia_api_key', None))
+# Log API key status (safely)
+api_key_status = "Present" if os.getenv("NVIDIA_API_KEY") else "Missing"
+print(f"[DIAGNOSTIC] NVIDIA_API_KEY status: {api_key_status}")
 
 # Define the request model
 class DiagnosisRequest(BaseModel):
@@ -40,26 +40,35 @@ async def diagnose(request: DiagnosisRequest):
     API endpoint to diagnose based on user input.
     Expects JSON input with 'age', 'gender', and 'input'.
     """
-    print("[DIAGNOSTIC] Diagnose endpoint called. Extractor class:", type(symptom_extractor))
-    print("[DIAGNOSTIC] Extractor Llama key:", getattr(symptom_extractor, 'nvidia_api_key', None))
+    print(f"[DIAGNOSTIC] Received request - Age: {request.age}, Gender: {request.gender}")
+    print(f"[DIAGNOSTIC] User input: {request.input[:100]}...")  # Show first 100 chars only
+    
     try:
         # Extract symptoms using SymptomExtractor
         symptoms = symptom_extractor.extract_symptoms(request.input)
 
         # If no symptoms are extracted, return an appropriate response
         if not symptoms:
+            print("[DIAGNOSTIC] No symptoms extracted from input")
             return {
                 "message": "No symptoms could be identified from the input.",
                 "suggestion": "Please provide more detailed information about your symptoms."
             }
 
+        print(f"[DIAGNOSTIC] Extracted symptoms: {symptoms}")
+
         # Get diagnosis using DiagnosisEngine
         diagnosis = diagnosis_engine.get_diagnosis(symptoms, request.age, request.gender)
+        
+        # Log diagnosis summary
+        top_condition = diagnosis["conditions"][0]["condition"] if diagnosis["conditions"] else "None"
+        print(f"[DIAGNOSTIC] Top condition: {top_condition}, Severity: {diagnosis['severity']}")
 
         # Return the diagnosis
         return diagnosis
 
     except Exception as e:
+        print(f"[DIAGNOSTIC] Error during diagnosis: {str(e)}")
         raise HTTPException(status_code=500, detail=str(e))
 
 
