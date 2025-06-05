@@ -98,6 +98,7 @@ class LlamaSymptomExtractor:
             "stuffy nose", "sneeze", "congestion", "chest tightness", "difficulty breathing",
             "labored breathing", "rapid breathing", "shallow breathing", "coughing up blood",
             "phlegm", "mucus", "postnasal drip", "hoarseness", "voice changes",
+            "bloody sputum", "chest discomfort", "chronic cough",
             
             # Pain symptoms
             "headache", "chest pain", "back pain", "stomach pain", "abdominal pain", 
@@ -105,12 +106,17 @@ class LlamaSymptomExtractor:
             "shoulder pain", "knee pain", "toothache", "body ache", "eye pain",
             "migraine", "tension headache", "cluster headache", "radiating pain",
             "localized pain", "generalized pain", "sharp pain", "dull pain",
+            "facial pain", "upper abdominal pain", "pain in arms", "pain in hands and fingers",
+            "pressure sensation", "tenderness", "tightness", "stiffness", "bone fracture",
+            "stooped posture", "height loss", "reduced range of motion",
             
             # Digestive symptoms
             "nausea", "vomiting", "diarrhea", "constipation", "bloating", "indigestion",
             "heartburn", "stomach ache", "loss of appetite", "increased appetite",
             "difficulty swallowing", "gas", "acid reflux", "belching", "burping",
             "abdominal cramps", "stomach cramps", "food intolerance", "food sensitivity",
+            "weight loss", "weight gain", "anemia", "digestive problems", "regurgitation",
+            "pale stools", "dark urine",
             
             # General symptoms
             "fever", "chills", "fatigue", "weakness", "dizziness", "lightheaded",
@@ -118,6 +124,9 @@ class LlamaSymptomExtractor:
             "dehydration", "thirst", "swelling", "inflammation", "malaise",
             "lethargy", "exhaustion", "general discomfort", "body temperature changes",
             "unusual drowsiness", "lack of responsiveness", "altered mental status",
+            "elevated temperature", "cold sensitivity", "cold sweat", "rapid heartbeat",
+            "low blood pressure", "increased thirst", "extreme hunger", "unexplained weight loss",
+            "increased appetite", "body aches", "muscle aches", "loss of taste", "loss of smell",
             
             # Skin symptoms
             "rash", "itching", "hives", "dry skin", "bruising", "bleeding",
@@ -133,27 +142,57 @@ class LlamaSymptomExtractor:
             "eyes turning yellow", "eyes taking on yellow shade", "eyes becoming yellow",
             "yellow tint to eyes", "yellowish eyes", "yellowish discoloration of eyes",
             "yellowish tint in eyes", "yellowish hue in eyes", "yellowish cast in eyes",
+            "pimples", "whiteheads", "blackheads", "red spots", "oily skin",
+            "red patches", "silver scales", "facial redness", "swollen bumps",
+            "enlarged nose", "crusting", "peeling skin", "skin break",
             
             # Neurological symptoms
             "confusion", "memory loss", "trouble speaking", "seizure", "tremor",
             "numbness", "tingling", "paralysis", "weakness", "coordination problems",
             "difficulty walking", "blurred vision", "double vision", "vision loss",
             "balance problems", "vertigo", "dizziness", "lightheadedness",
-            "cognitive impairment", "mental fog", "brain fog",
+            "cognitive impairment", "mental fog", "brain fog", "staring spells",
+            "jerky movements", "loss of consciousness", "vision problems",
+            "vision changes", "light sensitivity", "sound sensitivity",
+            "stiff neck", "speech changes", "cognitive difficulties",
+            "disorganized speech", "catatonic behavior", "flat affect",
+            "disorganized thinking", "lack of emotional expression",
             
             # Psychological symptoms
             "anxiety", "depression", "stress", "insomnia", "trouble sleeping",
             "irritability", "mood swings", "hallucinations", "paranoia", "panic attack",
             "difficulty concentrating", "brain fog", "confusion", "disorientation",
             "emotional instability", "mood changes", "personality changes",
-            "behavioral changes", "social withdrawal",
+            "behavioral changes", "social withdrawal", "nightmares",
+            "sadness", "loss of interest", "sleep changes", "suicidal thoughts",
+            "hopelessness", "worthlessness", "guilt", "appetite changes",
+            "low energy", "restlessness", "difficulty making decisions",
+            "excessive worry", "muscle tension", "racing thoughts",
+            "hyperventilation", "trembling", "chest tightness",
+            "fear of losing control", "avoidance behavior", "high energy",
+            "poor judgment", "impulsivity", "grandiosity", "mania", "hypomania",
+            "increased activity", "decreased need for sleep", "distractibility",
+            "flashbacks", "severe anxiety", "uncontrollable thoughts",
+            "hypervigilance", "startle response", "emotional numbness",
+            "obsessive thoughts", "compulsive behaviors", "rituals",
+            "checking behaviors", "cleaning compulsions", "counting",
+            "ordering", "hoarding", "intrusive thoughts", "inattention",
+            "hyperactivity", "forgetfulness", "disorganization", "fidgeting",
+            "interrupting others", "difficulty waiting", "poor time management",
+            "abnormal eating habits", "body image concerns", "food restriction",
+            "binge eating", "purging", "excessive exercise",
+            "preoccupation with food", "fear of weight gain", "distorted body image",
+            "fear of social situations", "avoidance of social interactions",
+            "anxiety in public", "fear of judgment", "blushing",
+            "self-consciousness", "fear of embarrassment",
             
             # Urinary/reproductive symptoms
             "frequent urination", "painful urination", "blood in urine", "urinary incontinence",
             "vaginal discharge", "penile discharge", "irregular periods", "missed period", 
             "heavy menstruation", "erectile dysfunction", "low libido", "genital itching", 
             "burning sensation", "urinary urgency", "urinary frequency", "urinary hesitancy", 
-            "urinary retention", "sexual dysfunction", "menstrual cramps", "pelvic pain"
+            "urinary retention", "sexual dysfunction", "menstrual cramps", "pelvic pain",
+            "swollen lymph nodes"
         ]
         
         # Symptom modifiers and descriptors
@@ -756,6 +795,7 @@ def test_llama_symptom_extractor():
     
     # Test cases
     test_texts = [
+        "I've been having nightmares and been hallucinating for a while now."
         "I have a mild fever",
         "I've been having a severe headache for the past two days.",
         "My throat is really sore and I have a high fever of 101°F.",

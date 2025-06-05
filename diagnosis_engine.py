@@ -180,6 +180,65 @@ class DiagnosisEngine:
                 "Apply an antibiotic ointment",
                 "Cover with a clean bandage",
                 "Change the bandage daily"
+            ],
+            "hemorrhoids": [
+                "Take warm sitz baths for 10-15 minutes several times a day",
+                "Use over-the-counter hemorrhoid creams or suppositories",
+                "Apply ice packs to reduce swelling",
+                "Keep the anal area clean and dry",
+                "Use moist wipes instead of dry toilet paper",
+                "Increase fiber intake and stay hydrated",
+                "Avoid straining during bowel movements",
+                "Consider using a donut cushion for sitting"
+            ],
+            "anal fissure": [
+                "Take warm sitz baths for 10-15 minutes several times a day",
+                "Use stool softeners to prevent constipation",
+                "Apply petroleum jelly to the affected area",
+                "Increase fiber intake and stay hydrated",
+                "Use moist wipes instead of dry toilet paper",
+                "Avoid straining during bowel movements",
+                "Consider using over-the-counter pain relievers"
+            ],
+            "irritable bowel syndrome": [
+                "Keep a food diary to identify trigger foods",
+                "Eat smaller, more frequent meals",
+                "Increase fiber intake gradually",
+                "Stay hydrated",
+                "Exercise regularly",
+                "Practice stress management techniques",
+                "Consider probiotics",
+                "Avoid caffeine, alcohol, and spicy foods"
+            ],
+            "anxiety": [
+                "Practice deep breathing exercises",
+                "Try progressive muscle relaxation",
+                "Engage in regular physical exercise",
+                "Maintain a regular sleep schedule",
+                "Limit caffeine and alcohol intake",
+                "Practice mindfulness or meditation",
+                "Consider herbal supplements like chamomile or lavender",
+                "Keep a journal to track triggers and symptoms"
+            ],
+            "depression": [
+                "Maintain a regular sleep schedule",
+                "Exercise regularly",
+                "Practice stress management techniques",
+                "Stay connected with friends and family",
+                "Engage in activities you enjoy",
+                "Consider light therapy if seasonal",
+                "Practice mindfulness or meditation",
+                "Keep a mood journal"
+            ],
+            "panic disorder": [
+                "Practice deep breathing exercises",
+                "Learn grounding techniques",
+                "Maintain a regular sleep schedule",
+                "Limit caffeine and alcohol",
+                "Exercise regularly",
+                "Practice progressive muscle relaxation",
+                "Keep a panic attack diary",
+                "Learn to recognize early warning signs"
             ]
         }
     
@@ -203,7 +262,13 @@ class DiagnosisEngine:
             
             # Gastrointestinal conditions
             "gastroenteritis": ["diarrhea", "nausea", "vomiting", "abdominal cramps", "mild fever", "headache"],
-            "irritable bowel syndrome": ["abdominal pain", "bloating", "gas", "diarrhea", "constipation", "mucus in stool"],
+            "hemorrhoids": ["rectal pain", "itching", "bleeding during bowel movements", "swelling", "discomfort",
+                          "lump near anus", "anal pain", "anal itching", "blood on toilet paper",
+                          "painful bowel movements", "anal swelling", "anal discomfort"],
+            "anal fissure": ["painful bowel movements", "bright red blood", "anal pain", "anal itching",
+                           "anal tear", "anal discomfort", "constipation", "anal burning"],
+            "irritable bowel syndrome": ["abdominal pain", "bloating", "gas", "diarrhea", "constipation", "mucus in stool",
+                                      "cramping", "urgency", "incomplete bowel movements", "alternating bowel habits"],
             "peptic ulcer": ["abdominal pain", "bloating", "heartburn", "nausea", "weight loss"],
             "gastroesophageal reflux disease": ["heartburn", "chest pain", "regurgitation", "difficulty swallowing", "chronic cough"],
             "food poisoning": ["nausea", "vomiting", "diarrhea", "abdominal cramps", "fever", "headache"],
@@ -250,11 +315,35 @@ class DiagnosisEngine:
             "jaundice": ["yellowing of skin", "yellowing of eyes", "dark urine", "pale stools", "itching", "fatigue"],
             
             # Mental health conditions
-            "depression": ["sadness", "loss of interest", "sleep changes", "fatigue", "difficulty concentrating", "suicidal thoughts"],
-            "anxiety disorder": ["excessive worry", "restlessness", "fatigue", "difficulty concentrating", "irritability", "muscle tension", "sleep problems"],
-            "bipolar disorder": ["mood swings", "high energy", "low energy", "sleep problems", "poor judgment"],
-            "schizophrenia": ["hallucinations", "delusions", "thought disorders", "lack of motivation", "social withdrawal"],
-            "post-traumatic stress disorder": ["flashbacks", "nightmares", "severe anxiety", "uncontrollable thoughts", "mood changes"],
+            "depression": ["sadness", "loss of interest", "sleep changes", "fatigue", "difficulty concentrating", "suicidal thoughts", 
+                         "hopelessness", "worthlessness", "guilt", "irritability", "social withdrawal", "appetite changes",
+                         "low energy", "mood swings", "anxiety", "restlessness", "difficulty making decisions"],
+            "anxiety disorder": ["excessive worry", "restlessness", "fatigue", "difficulty concentrating", "irritability", "muscle tension", 
+                               "sleep problems", "panic attacks", "racing thoughts", "hyperventilation", "sweating", "trembling",
+                               "chest tightness", "dizziness", "nausea", "fear of losing control", "avoidance behavior"],
+            "bipolar disorder": ["mood swings", "high energy", "low energy", "sleep problems", "poor judgment", "racing thoughts",
+                               "impulsivity", "grandiosity", "depression", "mania", "hypomania", "irritability",
+                               "increased activity", "decreased need for sleep", "distractibility"],
+            "schizophrenia": ["hallucinations", "delusions", "thought disorders", "lack of motivation", "social withdrawal",
+                            "disorganized speech", "catatonic behavior", "flat affect", "cognitive difficulties",
+                            "paranoia", "disorganized thinking", "lack of emotional expression"],
+            "post-traumatic stress disorder": ["flashbacks", "nightmares", "severe anxiety", "uncontrollable thoughts", "mood changes",
+                                            "hypervigilance", "startle response", "avoidance", "emotional numbness",
+                                            "irritability", "sleep problems", "concentration difficulties"],
+            "obsessive-compulsive disorder": ["obsessive thoughts", "compulsive behaviors", "anxiety", "rituals", "checking behaviors",
+                                           "cleaning compulsions", "counting", "ordering", "hoarding", "intrusive thoughts"],
+            "attention deficit hyperactivity disorder": ["inattention", "hyperactivity", "impulsivity", "difficulty focusing",
+                                                     "forgetfulness", "disorganization", "restlessness", "fidgeting",
+                                                     "interrupting others", "difficulty waiting", "poor time management"],
+            "eating disorders": ["abnormal eating habits", "body image concerns", "weight changes", "food restriction",
+                               "binge eating", "purging", "excessive exercise", "preoccupation with food",
+                               "fear of weight gain", "distorted body image"],
+            "panic disorder": ["panic attacks", "chest pain", "shortness of breath", "sweating", "trembling",
+                             "heart palpitations", "dizziness", "fear of dying", "numbness", "chills",
+                             "hot flashes", "fear of losing control"],
+            "social anxiety disorder": ["fear of social situations", "avoidance of social interactions", "anxiety in public",
+                                     "fear of judgment", "blushing", "sweating", "trembling", "difficulty speaking",
+                                     "self-consciousness", "fear of embarrassment"],
             
             # Endocrine conditions
             "diabetes": ["increased thirst", "frequent urination", "extreme hunger", "unexplained weight loss", "fatigue", "blurred vision"],
